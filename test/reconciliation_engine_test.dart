@@ -72,4 +72,26 @@ void main() {
     expect(result.matchedCount, 1);
     expect(result.unmatchedCount, 1);
   });
+
+  test('يطابق القيم الواقعة على جانبي حدود فهرس المبلغ', () {
+    final result = engine.reconcile(
+      left: [record(id: 'L1', date: '2026-01-01', amount: 100.0009)],
+      right: [record(id: 'R1', date: '2026-01-01', amount: 100.0011)],
+      settings: const ReconciliationSettings(amountTolerance: 0.001),
+    );
+
+    expect(result.matchedCount, 1);
+    expect(result.unmatchedCount, 0);
+  });
+
+  test('يرفض سماحية مبلغ غير موجبة', () {
+    expect(
+      () => engine.reconcile(
+        left: const [],
+        right: const [],
+        settings: const ReconciliationSettings(amountTolerance: 0),
+      ),
+      throwsArgumentError,
+    );
+  });
 }
