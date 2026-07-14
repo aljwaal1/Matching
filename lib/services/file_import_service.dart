@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:csv/csv.dart';
 import 'package:excel/excel.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../models/transaction_record.dart';
 
@@ -45,16 +46,21 @@ class FileImportService {
     final extension = fileName.split('.').last.toLowerCase();
     late final List<List<dynamic>> table;
 
-    if (extension == 'xlsx') {
-      table = _readExcel(bytes);
-    } else if (extension == 'csv' || extension == 'txt' || extension == 'tsv') {
-      table = _readDelimited(bytes, extension == 'tsv' ? '\t' : null);
-    } else if (extension == 'xls') {
-      throw const FormatException('صيغة XLS القديمة غير مدعومة حالياً. احفظ الملف بصيغة XLSX.');
-    } else if (extension == 'pdf') {
-      throw const FormatException('تم اختيار ملف PDF، وسيتم ربط قراءة جداول PDF في المرحلة التالية.');
-    } else {
-      throw FormatException('صيغة الملف .$extension غير مدعومة.');
+    switch (extension) {
+      case 'xlsx':
+        table = _readExcel(bytes);
+      case 'csv':
+      case 'txt':
+      case 'tsv':
+        table = _readDelimited(bytes, extension == 'tsv' ? '\t' : null);
+      case 'pdf':
+        table = _readPdf(bytes);
+      case 'xls':
+        throw const FormatException(
+          'صيغة XLS القديمة تحتاج تحويلها إلى XLSX قبل الاستيراد.',
+        );
+      default:
+        throw FormatException('صيغة الملف .$extension غير مدعومة.');
     }
 
     if (table.length < 2) {
@@ -62,7 +68,7 @@ class FileImportService {
     }
 
     final headerIndex = _findHeaderRow(table);
-    final headers = table[headerIndex].map((value) => _clean(value)).toList();
+    final headers = table[headerIndex].map(_clean).toList(growable: false);
     final dataRows = table.skip(headerIndex + 1).where(_hasUsefulData).toList();
     final columns = _detectColumns(headers, dataRows);
     final records = <TransactionRecord>[];
@@ -84,47 +90,116 @@ class FileImportService {
     }
 
     if (records.isEmpty) {
-      throw const FormatException('لم يتم العثور على صفوف تحتوي على تاريخ ومبلغ صالحين.');
+      throw const FormatException(
+        'لم يتم العثور على صفوف تحتوي على تاريخ ومبلغ صالحين.',
+      );
     }
 
     return ImportedStatement(
       fileName: fileName,
       headers: headers,
       rows: dataRows,
-      records: records,
+      records: List.unmodifiable(records),
     );
   }
 
   List<List<dynamic>> _readExcel(Uint8List bytes) {
     final workbook = Excel.decodeBytes(bytes);
     if (workbook.tables.isEmpty) return const [];
-    final sheet = workbook.tables.values.first;
-    if (sheet == null) return const [];
-    return sheet.rows
-        .map((row) => row.map((cell) => cell?.value).toList(growable: false))
-        .toList(growable: false);
+
+    List<List<dynamic>> best = const [];
+    for (final sheet in workbook.tables.values) {
+      if (sheet == null) continue;
+      final rows = sheet.rows
+          .map((row) => row.map((cell) => cell?.value).toList(growable: false))
+          .toList(growable: false);
+      if (rows.length > best.length) best = rows;
+    }
+    return best;
   }
 
   List<List<dynamic>> _readDelimited(Uint8List bytes, String? forcedDelimiter) {
     final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\r\n', '\n');
     final delimiter = forcedDelimiter ?? _detectDelimiter(text);
-    return CsvToListConverter(fieldDelimiter: delimiter, shouldParseNumbers: false)
-        .convert(text);
+    return CsvToListConverter(
+      fieldDelimiter: delimiter,
+      shouldParseNumbers: false,
+    ).convert(text);
+  }
+
+  List<List<dynamic>> _readPdf(Uint8List bytes) {
+    final document = PdfDocument(inputBytes: bytes);
+    try {
+      final text = PdfTextExtractor(document).extractText();
+      if (text.trim().isEmpty) {
+        throw const FormatException(
+          'ملف PDF لا يحتوي على نص قابل للاستخراج. ملفات الصور الممسوحة ضوئياً غير مدعومة حالياً.',
+        );
+      }
+      return _pdfTextToRows(text);
+    } finally {
+      document.dispose();
+    }
+  }
+
+  List<List<dynamic>> _pdfTextToRows(String text) {
+    final lines = const LineSplitter()
+        .convert(text.replaceAll('\u00a0', ' '))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    final rows = <List<dynamic>>[];
+    for (final line in lines) {
+      var cells = line
+          .split(RegExp(r'\t+|\s{2,}'))
+          .map((cell) => cell.trim())
+          .where((cell) => cell.isNotEmpty)
+          .toList();
+
+      if (cells.length == 1) {
+        cells = _splitCompactPdfLine(line);
+      }
+      if (cells.isNotEmpty) rows.add(cells);
+    }
+    return rows;
+  }
+
+  List<String> _splitCompactPdfLine(String line) {
+    final dateMatch = RegExp(r'\b\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\b').firstMatch(line);
+    final amountMatches = RegExp(r'[-(]?[0-9][0-9,]*(?:\.\d+)?\)?').allMatches(line).toList();
+    if (dateMatch == null || amountMatches.isEmpty) return [line];
+
+    final amountMatch = amountMatches.last;
+    final beforeDate = line.substring(0, dateMatch.start).trim();
+    final date = dateMatch.group(0)!;
+    final between = line.substring(dateMatch.end, amountMatch.start).trim();
+    final amount = amountMatch.group(0)!;
+    final after = line.substring(amountMatch.end).trim();
+
+    return [
+      if (beforeDate.isNotEmpty) beforeDate,
+      date,
+      if (between.isNotEmpty) between,
+      amount,
+      if (after.isNotEmpty) after,
+    ];
   }
 
   String _detectDelimiter(String text) {
     final firstLine = text.split('\n').first;
     final candidates = <String>[',', ';', '\t'];
-    candidates.sort((a, b) => b.allMatches(firstLine).length.compareTo(a.allMatches(firstLine).length));
+    candidates.sort(
+      (a, b) => b.allMatches(firstLine).length.compareTo(a.allMatches(firstLine).length),
+    );
     return candidates.first;
   }
 
   int _findHeaderRow(List<List<dynamic>> table) {
     var bestIndex = 0;
     var bestScore = -1;
-    for (var i = 0; i < table.length && i < 15; i++) {
-      final row = table[i];
-      final score = row.where((cell) => _knownHeader(_clean(cell))).length;
+    for (var i = 0; i < table.length && i < 20; i++) {
+      final score = table[i].where((cell) => _knownHeader(_clean(cell))).length;
       if (score > bestScore) {
         bestScore = score;
         bestIndex = i;
@@ -177,8 +252,11 @@ class FileImportService {
     var best = 0;
     int? bestColumn;
     for (var column = 0; column < count; column++) {
-      final score = rows.take(25).where((row) => _parseDate(_cell(row, column)) != null).length;
-      if (score > best) { best = score; bestColumn = column; }
+      final score = rows.take(40).where((row) => _parseDate(_cell(row, column)) != null).length;
+      if (score > best) {
+        best = score;
+        bestColumn = column;
+      }
     }
     return best >= 2 ? bestColumn : null;
   }
@@ -188,15 +266,18 @@ class FileImportService {
     int? bestColumn;
     for (var column = 0; column < count; column++) {
       if (column == exclude) continue;
-      final score = rows.take(25).where((row) => _parseAmount(_cell(row, column)) != null).length;
-      if (score > best) { best = score; bestColumn = column; }
+      final score = rows.take(40).where((row) => _parseAmount(_cell(row, column)) != null).length;
+      if (score > best) {
+        best = score;
+        bestColumn = column;
+      }
     }
     return best >= 2 ? bestColumn : null;
   }
 
   double? _extractAmount(List<dynamic> row, _DetectedColumns columns) {
     final direct = _parseAmount(_cell(row, columns.amount));
-    if (direct != null) return direct;
+    if (direct != null && direct != 0) return direct;
     final debit = _parseAmount(_cell(row, columns.debit)) ?? 0;
     final credit = _parseAmount(_cell(row, columns.credit)) ?? 0;
     final value = debit != 0 ? debit : credit;
@@ -212,12 +293,15 @@ class FileImportService {
     if (value is num && value > 20000 && value < 80000) {
       return DateTime(1899, 12, 30).add(Duration(days: value.round()));
     }
+
     final text = _clean(value);
     if (text.isEmpty) return null;
     final normalized = text.replaceAll(RegExp(r'[.\\]'), '/').replaceAll('-', '/');
     final parts = normalized.split('/').map((part) => int.tryParse(part.trim())).toList();
     if (parts.length == 3 && parts.every((part) => part != null)) {
-      var a = parts[0]!; var b = parts[1]!; var c = parts[2]!;
+      final a = parts[0]!;
+      final b = parts[1]!;
+      var c = parts[2]!;
       if (a > 1900) return _safeDate(a, b, c);
       if (c < 100) c += 2000;
       return _safeDate(c, b, a);
@@ -236,7 +320,7 @@ class FileImportService {
     final text = _clean(value);
     if (text.isEmpty) return null;
     final negative = text.startsWith('(') && text.endsWith(')');
-    var normalized = text
+    final normalized = text
         .replaceAll(RegExp(r'[^0-9.,\-]'), '')
         .replaceAll(',', '');
     final parsed = double.tryParse(normalized);
@@ -266,6 +350,7 @@ class FileImportService {
       .trim();
 
   String _clean(dynamic value) => value?.toString().trim() ?? '';
+
   String? _nullableText(dynamic value) {
     final text = _clean(value);
     return text.isEmpty ? null : text;
