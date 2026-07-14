@@ -63,7 +63,12 @@ class ExportService {
     final bytes = workbook.save();
     if (bytes == null) throw Exception('تعذر إنشاء ملف Excel.');
     final file = await _writeFile(_safeName(name), 'xlsx', Uint8List.fromList(bytes));
-    await Share.shareXFiles([XFile(file.path)], text: 'نتيجة مطابقة الحسابات');
+    await SharePlus.instance.share(
+      ShareParams(
+        text: 'نتيجة مطابقة الحسابات',
+        files: [XFile(file.path)],
+      ),
+    );
   }
 
   void _appendExcelRow(
@@ -195,7 +200,12 @@ class ExportService {
 
       final bytes = await document.save();
       final file = await _writeFile(_safeName(name), 'pdf', Uint8List.fromList(bytes));
-      await Share.shareXFiles([XFile(file.path)], text: 'نتيجة مطابقة الحسابات');
+      await SharePlus.instance.share(
+        ShareParams(
+          text: 'نتيجة مطابقة الحسابات',
+          files: [XFile(file.path)],
+        ),
+      );
     } finally {
       document.dispose();
     }
