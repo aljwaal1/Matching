@@ -5,13 +5,24 @@ on:
   push:
     branches:
       - agent/matching-app-foundation
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
+concurrency:
+  group: matching-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -37,6 +48,8 @@ jobs:
           sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
           sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
+          grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
+          grep -q 'minSdk = 23' android/app/build.gradle.kts
 
       - name: Get packages
         run: flutter pub get
@@ -50,13 +63,16 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --no-tree-shake-icons
 
-      - name: Copy APK
+      - name: Validate and copy APK
         run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
           mkdir -p apk
           cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
+          test -s apk/Matching.apk
 
       - name: Commit APK
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
