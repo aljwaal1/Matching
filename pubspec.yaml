@@ -1,7 +1,7 @@
 name: matching
 description: تطبيق مطابقة كشوفات الحساب بين العملاء والموردين والبنوك
 publish_to: 'none'
-version: 0.2.0+2
+version: 0.3.0+3
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -16,6 +16,7 @@ dependencies:
   csv: ^6.0.0
   path_provider: ^2.1.5
   shared_preferences: ^2.5.3
+  share_plus: ^11.0.0
   pdf: ^3.11.3
   printing: ^5.14.2
   syncfusion_flutter_pdf: ^30.1.41
