@@ -46,21 +46,18 @@ class FileImportService {
     final extension = fileName.split('.').last.toLowerCase();
     late final List<List<dynamic>> table;
 
-    switch (extension) {
-      case 'xlsx':
-        table = _readExcel(bytes);
-      case 'csv':
-      case 'txt':
-      case 'tsv':
-        table = _readDelimited(bytes, extension == 'tsv' ? '\t' : null);
-      case 'pdf':
-        table = _readPdf(bytes);
-      case 'xls':
-        throw const FormatException(
-          'صيغة XLS القديمة تحتاج تحويلها إلى XLSX قبل الاستيراد.',
-        );
-      default:
-        throw FormatException('صيغة الملف .$extension غير مدعومة.');
+    if (extension == 'xlsx') {
+      table = _readExcel(bytes);
+    } else if (extension == 'csv' || extension == 'txt' || extension == 'tsv') {
+      table = _readDelimited(bytes, extension == 'tsv' ? '\t' : null);
+    } else if (extension == 'pdf') {
+      table = _readPdf(bytes);
+    } else if (extension == 'xls') {
+      throw const FormatException(
+        'صيغة XLS القديمة تحتاج تحويلها إلى XLSX قبل الاستيراد.',
+      );
+    } else {
+      throw FormatException('صيغة الملف .$extension غير مدعومة.');
     }
 
     if (table.length < 2) {
@@ -156,10 +153,7 @@ class FileImportService {
           .map((cell) => cell.trim())
           .where((cell) => cell.isNotEmpty)
           .toList();
-
-      if (cells.length == 1) {
-        cells = _splitCompactPdfLine(line);
-      }
+      if (cells.length == 1) cells = _splitCompactPdfLine(line);
       if (cells.isNotEmpty) rows.add(cells);
     }
     return rows;
