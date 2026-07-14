@@ -23,9 +23,6 @@ class ReconciliationEngine {
 
     for (final leftItem in left) {
       final candidates = availableRight
-          .where((rightItem) =>
-              (leftItem.amount - rightItem.amount).abs() <=
-              settings.amountTolerance)
           .map((rightItem) => _score(leftItem, rightItem, settings))
           .where((candidate) => candidate.score > 0)
           .toList()
@@ -48,7 +45,7 @@ class ReconciliationEngine {
     }
 
     return ReconciliationResult(
-      pairs: pairs,
+      pairs: List.unmodifiable(pairs),
       unmatchedRight: List.unmodifiable(availableRight),
     );
   }
@@ -58,62 +55,53 @@ class ReconciliationEngine {
     TransactionRecord right,
     ReconciliationSettings settings,
   ) {
-    final dateDifference = left.date.difference(right.date).inDays.abs();
-    if (dateDifference > settings.allowedDateDifferenceDays) {
-      return MatchPair(
-        left: left,
-        right: right,
-        status: MatchStatus.unmatched,
-        reason: 'فرق التاريخ أكبر من المسموح',
-        score: 0,
-      );
-    }
+    final amountMatches =
+        (left.amount - right.amount).abs() <= settings.amountTolerance;
+    if (!amountMatches) return _noMatch(left, right, 'المبلغ مختلف');
 
-    final hasDocumentNumbers = left.normalizedDocumentNumber.isNotEmpty &&
-        right.normalizedDocumentNumber.isNotEmpty;
-    final documentsMatch = hasDocumentNumbers &&
-        left.normalizedDocumentNumber == right.normalizedDocumentNumber;
+    final leftDocument = left.normalizedDocumentNumber;
+    final rightDocument = right.normalizedDocumentNumber;
+    final bothHaveDocuments = leftDocument.isNotEmpty && rightDocument.isNotEmpty;
 
-    if (documentsMatch) {
+    if (bothHaveDocuments) {
+      if (leftDocument != rightDocument) {
+        return _noMatch(left, right, 'رقم المستند مختلف');
+      }
       return MatchPair(
         left: left,
         right: right,
         status: MatchStatus.matched,
         reason: 'تطابق رقم المستند والمبلغ',
-        score: 100 - dateDifference.toDouble(),
+        score: 100,
       );
     }
 
-    final descriptionSimilarity =
-        _descriptionSimilarity(left.description, right.description);
-    final score = 80 - (dateDifference * 5) + (descriptionSimilarity * 15);
+    final dateDifference = left.date.difference(right.date).inDays.abs();
+    if (dateDifference > settings.allowedDateDifferenceDays) {
+      return _noMatch(left, right, 'فرق التاريخ أكبر من المسموح');
+    }
 
     return MatchPair(
       left: left,
       right: right,
-      status: dateDifference <= 1 || descriptionSimilarity >= 0.5
-          ? MatchStatus.matched
-          : MatchStatus.probable,
+      status: MatchStatus.matched,
       reason: dateDifference == 0
           ? 'تطابق المبلغ والتاريخ'
           : 'تطابق المبلغ مع فرق تاريخ $dateDifference يوم',
-      score: score,
+      score: 90 - dateDifference.toDouble(),
     );
   }
 
-  double _descriptionSimilarity(String first, String second) {
-    final a = _tokens(first);
-    final b = _tokens(second);
-    if (a.isEmpty || b.isEmpty) return 0;
-    final intersection = a.intersection(b).length;
-    final union = a.union(b).length;
-    return union == 0 ? 0 : intersection / union;
-  }
-
-  Set<String> _tokens(String value) => value
-      .toLowerCase()
-      .replaceAll(RegExp(r'[^\w\u0600-\u06FF]+'), ' ')
-      .split(' ')
-      .where((token) => token.length > 1)
-      .toSet();
+  MatchPair _noMatch(
+    TransactionRecord left,
+    TransactionRecord right,
+    String reason,
+  ) =>
+      MatchPair(
+        left: left,
+        right: right,
+        status: MatchStatus.unmatched,
+        reason: reason,
+        score: 0,
+      );
 }
