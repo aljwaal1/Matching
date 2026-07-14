@@ -17,8 +17,10 @@ class TransactionRecord {
   final String description;
   final int? sourceRow;
 
-  String get normalizedDocumentNumber =>
-      (documentNumber ?? '').trim().toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  String get normalizedDocumentNumber => (documentNumber ?? '')
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]'), '');
 }
 
 class MatchPair {
