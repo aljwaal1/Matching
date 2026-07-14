@@ -18,17 +18,53 @@ class ReconciliationEngine {
     required List<TransactionRecord> right,
     ReconciliationSettings settings = const ReconciliationSettings(),
   }) {
-    final availableRight = List<TransactionRecord>.from(right);
+    if (settings.amountTolerance <= 0) {
+      throw ArgumentError.value(
+        settings.amountTolerance,
+        'amountTolerance',
+        'يجب أن تكون سماحية المبلغ أكبر من صفر.',
+      );
+    }
+
+    final indexedRight = List.generate(
+      right.length,
+      (index) => _IndexedRecord(index: index, record: right[index]),
+      growable: false,
+    );
+    final amountIndex = <int, List<_IndexedRecord>>{};
+    for (final item in indexedRight) {
+      amountIndex
+          .putIfAbsent(_amountBucket(item.record.amount, settings.amountTolerance), () => [])
+          .add(item);
+    }
+
+    final usedRight = <int>{};
     final pairs = <MatchPair>[];
 
     for (final leftItem in left) {
-      final candidates = availableRight
-          .map((rightItem) => _score(leftItem, rightItem, settings))
-          .where((candidate) => candidate.score > 0)
-          .toList()
-        ..sort((a, b) => b.score.compareTo(a.score));
+      final bucket = _amountBucket(leftItem.amount, settings.amountTolerance);
+      MatchPair? best;
+      int? bestIndex;
 
-      if (candidates.isEmpty) {
+      // A value within the tolerance can only fall in its own bucket or one
+      // of the directly adjacent buckets.
+      for (var candidateBucket = bucket - 1;
+          candidateBucket <= bucket + 1;
+          candidateBucket++) {
+        for (final candidate in amountIndex[candidateBucket] ?? const <_IndexedRecord>[]) {
+          if (usedRight.contains(candidate.index)) continue;
+          final scored = _score(leftItem, candidate.record, settings);
+          if (scored.score <= 0) continue;
+          if (best == null || scored.score > best.score) {
+            best = scored;
+            bestIndex = candidate.index;
+            if (scored.score == 100) break;
+          }
+        }
+        if (best?.score == 100) break;
+      }
+
+      if (best == null || bestIndex == null) {
         pairs.add(MatchPair(
           left: leftItem,
           right: null,
@@ -39,16 +75,22 @@ class ReconciliationEngine {
         continue;
       }
 
-      final best = candidates.first;
-      availableRight.remove(best.right);
+      usedRight.add(bestIndex);
       pairs.add(best);
     }
 
+    final unmatchedRight = indexedRight
+        .where((item) => !usedRight.contains(item.index))
+        .map((item) => item.record)
+        .toList(growable: false);
+
     return ReconciliationResult(
       pairs: List.unmodifiable(pairs),
-      unmatchedRight: List.unmodifiable(availableRight),
+      unmatchedRight: List.unmodifiable(unmatchedRight),
     );
   }
+
+  int _amountBucket(double amount, double tolerance) => (amount / tolerance).floor();
 
   MatchPair _score(
     TransactionRecord left,
@@ -104,4 +146,11 @@ class ReconciliationEngine {
         reason: reason,
         score: 0,
       );
+}
+
+class _IndexedRecord {
+  const _IndexedRecord({required this.index, required this.record});
+
+  final int index;
+  final TransactionRecord record;
 }
