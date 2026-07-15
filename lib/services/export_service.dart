@@ -15,7 +15,7 @@ class ExportService {
     final sheet = book['النتائج'];
     sheet.appendRow(['الحالة','السبب','تاريخ 1','رقم المستند 1','المبلغ 1','البيان 1','تاريخ 2','رقم المستند 2','المبلغ 2','البيان 2'].map(TextCellValue.new).toList());
     for (final p in result.pairs) {
-      sheet.appendRow(_row(p).map((e) => TextCellValue(e)).toList());
+      sheet.appendRow(_row(p).map(TextCellValue.new).toList());
     }
     for (final r in result.unmatchedRight) {
       sheet.appendRow(['غير متطابقة','غير موجودة في الطرف الأول','','','','',_date(r.date),r.documentNumber ?? '',r.amount.toStringAsFixed(2),r.description].map(TextCellValue.new).toList());
@@ -27,7 +27,7 @@ class ExportService {
     if (bytes == null) throw Exception('تعذر إنشاء ملف Excel.');
     final file = File('${(await getTemporaryDirectory()).path}/${_safe(name)}.xlsx');
     await file.writeAsBytes(bytes, flush: true);
-    await Share.shareXFiles([XFile(file.path)]);
+    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
     return file;
   }
 
@@ -50,7 +50,7 @@ class ExportService {
     ));
     final file = File('${(await getTemporaryDirectory()).path}/${_safe(name)}.pdf');
     await file.writeAsBytes(await doc.save(), flush: true);
-    await Share.shareXFiles([XFile(file.path)]);
+    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
     return file;
   }
 
