@@ -1,0 +1,70 @@
+name: Build Matching APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matching-main-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform
+        run: flutter create --platforms=android --org com.explapp --project-name matching .
+
+      - name: Configure Android
+        run: |
+          rm -f test/widget_test.dart
+          sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
+          sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Publish APK
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p apk
+          cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
+          printf '# تحميل تطبيق مطابقة الحسابات\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Build Matching APK"
+          git push
