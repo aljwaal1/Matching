@@ -181,15 +181,18 @@ class ExportService {
         font: font,
         cellPadding: PdfPaddings(left: 4, right: 4, top: 4, bottom: 4),
       );
-      for (final row in grid.rows) {
-        for (final cell in row.cells) {
+      for (var rowIndex = 0; rowIndex < grid.rows.count; rowIndex++) {
+        final row = grid.rows[rowIndex];
+        for (var cellIndex = 0; cellIndex < row.cells.count; cellIndex++) {
+          final cell = row.cells[cellIndex];
           cell.stringFormat = PdfStringFormat(
             textDirection: PdfTextDirection.rightToLeft,
             alignment: PdfTextAlignment.center,
           );
         }
       }
-      for (final cell in header.cells) {
+      for (var cellIndex = 0; cellIndex < header.cells.count; cellIndex++) {
+        final cell = header.cells[cellIndex];
         cell.style.font = font;
         cell.stringFormat = PdfStringFormat(
           textDirection: PdfTextDirection.rightToLeft,
