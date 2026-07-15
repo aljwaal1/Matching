@@ -31,35 +31,94 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Expose real import errors
+      - name: Persist bytes-first file import
         shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
-          import re
 
           path = Path('lib/main.dart')
           text = path.read_text(encoding='utf-8')
-          pattern = re.compile(
-              r"\s*\}\s*catch\s*\(_\)\s*\{\s*"
-              r"_message\('حدث خطأ أثناء قراءة الملف\. تأكد من سلامة الصيغة\.'\);\s*"
-              r"\}\s*finally\s*\{",
-              re.S,
-          )
-          replacement = """
+
+          if "import 'dart:io';" not in text:
+              text = "import 'dart:io';\nimport 'dart:typed_data';\n\n" + text
+
+          start = text.index('  Future<void> _pickFile(bool first) async {')
+          end = text.index('\n\n  void _startMatching', start)
+
+          replacement = '''  Future<void> _pickFile(bool first) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+        allowMultiple: false,
+        withData: true,
+      );
     } catch (error, stackTrace) {
-      debugPrint('File import error: $error');
+      debugPrint('File picker error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) _message('تعذر فتح مدير الملفات: $error');
+      return;
+    }
+
+    if (result == null || result.files.isEmpty) {
+      if (mounted) _message('لم يتم اختيار ملف.');
+      return;
+    }
+
+    final platformFile = result.files.single;
+    final fileName = platformFile.name;
+    final extension = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+
+    setState(() => _busy = true);
+    try {
+      Uint8List? bytes = platformFile.bytes;
+      if ((bytes == null || bytes.isEmpty) && platformFile.path != null) {
+        bytes = await File(platformFile.path!).readAsBytes();
+      }
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception(
+          'تعذر الوصول لبيانات الملف من الجهاز. جرّب اختيار الملف من ذاكرة الهاتف الداخلية.',
+        );
+      }
+
+      final imported = _importer.importBytes(
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+
+      final skipped = imported.skippedRows.isEmpty
+          ? ''
+          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح';
+      _message(
+        'تم تحميل $fileName واستيراد ${imported.records.length} عملية$skipped.',
+      );
+    } on FormatException catch (error) {
+      if (mounted) {
+        _message('فشل قراءة ملف "$fileName" (نوع: $extension). ${error.message}');
+      }
+    } catch (error, stackTrace) {
+      debugPrint('File import error for $fileName: $error');
       debugPrintStack(stackTrace: stackTrace);
       if (mounted) {
-        _message('خطأ القراءة: ${error.runtimeType} — $error');
+        _message('فشل قراءة ملف "$fileName" (نوع: $extension). تفاصيل الخطأ: $error');
       }
     } finally {
-"""
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit('Could not locate generic import catch block')
+      if (mounted) setState(() => _busy = false);
+    }
+  }'''
+
+          text = text[:start] + replacement + text[end:]
           path.write_text(text, encoding='utf-8')
           PY
+          grep -q 'withData: true' lib/main.dart
+          grep -q 'Uint8List? bytes = platformFile.bytes' lib/main.dart
+          grep -q 'تفاصيل الخطأ' lib/main.dart
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -111,5 +170,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/main.dart apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Show real file import error and build APK"
+          git diff --cached --quiet || git commit -m "Fix bytes-first file import and build APK"
           git push
