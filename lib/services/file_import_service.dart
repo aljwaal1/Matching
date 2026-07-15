@@ -7,18 +7,32 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import '../models/transaction_record.dart';
 
+class SkippedRow {
+  const SkippedRow({
+    required this.rowNumber,
+    required this.reason,
+    required this.rawValues,
+  });
+
+  final int rowNumber;
+  final String reason;
+  final List<String> rawValues;
+}
+
 class ImportedStatement {
   const ImportedStatement({
     required this.fileName,
     required this.headers,
     required this.rows,
     required this.records,
+    required this.skippedRows,
   });
 
   final String fileName;
   final List<String> headers;
   final List<List<dynamic>> rows;
   final List<TransactionRecord> records;
+  final List<SkippedRow> skippedRows;
 }
 
 class FileImportService {
@@ -69,12 +83,24 @@ class FileImportService {
     final dataRows = table.skip(headerIndex + 1).where(_hasUsefulData).toList();
     final columns = _detectColumns(headers, dataRows);
     final records = <TransactionRecord>[];
+    final skippedRows = <SkippedRow>[];
 
     for (var index = 0; index < dataRows.length; index++) {
       final row = dataRows[index];
       final date = _parseDate(_cell(row, columns.date));
       final amount = _extractAmount(row, columns);
-      if (date == null || amount == null) continue;
+      if (date == null || amount == null) {
+        final reasons = <String>[
+          if (date == null) 'تعذر فهم التاريخ',
+          if (amount == null) 'تعذر فهم المبلغ',
+        ];
+        skippedRows.add(SkippedRow(
+          rowNumber: headerIndex + index + 2,
+          reason: reasons.join(' و'),
+          rawValues: List.unmodifiable(row.map(_clean)),
+        ));
+        continue;
+      }
 
       records.add(TransactionRecord(
         id: '${fileName}_$index',
@@ -87,16 +113,24 @@ class FileImportService {
     }
 
     if (records.isEmpty) {
-      throw const FormatException(
-        'لم يتم العثور على صفوف تحتوي على تاريخ ومبلغ صالحين.',
+      final detail = skippedRows.isEmpty
+          ? ''
+          : ' تم تجاهل ${skippedRows.length} صف بسبب التاريخ أو المبلغ.';
+      throw FormatException(
+        'لم يتم العثور على صفوف تحتوي على تاريخ ومبلغ صالحين.$detail',
       );
     }
 
+    final displayedFileName = skippedRows.isEmpty
+        ? fileName
+        : '$fileName — تم تجاهل ${skippedRows.length} صف';
+
     return ImportedStatement(
-      fileName: fileName,
+      fileName: displayedFileName,
       headers: headers,
       rows: dataRows,
       records: List.unmodifiable(records),
+      skippedRows: List.unmodifiable(skippedRows),
     );
   }
 
