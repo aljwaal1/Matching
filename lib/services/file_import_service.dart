@@ -83,7 +83,6 @@ class FileImportService {
     final book = Excel.decodeBytes(bytes);
     List<List<dynamic>> best = const [];
     for (final sheet in book.tables.values) {
-      if (sheet == null) continue;
       final rows = sheet.rows.map((r) => r.map((c) => c?.value).toList()).toList();
       if (rows.length > best.length) best = rows;
     }
