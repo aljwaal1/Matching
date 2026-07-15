@@ -101,10 +101,11 @@ class ExportService {
   }) async {
     final document = PdfDocument();
     document.pageSettings.orientation = PdfPageOrientation.landscape;
+    document.pageSettings.size = PdfPageSize.a3;
     document.pageSettings.margins.all = 24;
 
     try {
-      final font = await _arabicFont(11);
+      final font = await _arabicFont(9);
       final titleFont = await _arabicFont(17);
       final page = document.pages.add();
       page.graphics.drawString(
@@ -136,16 +137,19 @@ class ExportService {
       );
 
       final grid = PdfGrid();
-      grid.columns.add(count: 7);
+      grid.columns.add(count: 10);
       final header = grid.headers.add(1)[0];
       final headers = [
         'الحالة',
         'السبب',
-        'تاريخ 1',
-        'المبلغ 1',
-        'رقم المستند 1',
-        'تاريخ 2',
-        'المبلغ 2',
+        'تاريخ الطرف الأول',
+        'رقم مستند الطرف الأول',
+        'مبلغ الطرف الأول',
+        'بيان الطرف الأول',
+        'تاريخ الطرف الثاني',
+        'رقم مستند الطرف الثاني',
+        'مبلغ الطرف الثاني',
+        'بيان الطرف الثاني',
       ];
       for (var i = 0; i < headers.length; i++) {
         header.cells[i].value = headers[i];
@@ -171,15 +175,18 @@ class ExportService {
         row.cells[0].value = item.status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة';
         row.cells[1].value = item.reason;
         row.cells[2].value = item.left == null ? '' : date.format(item.left!.date);
-        row.cells[3].value = item.left?.amount.toStringAsFixed(2) ?? '';
-        row.cells[4].value = item.left?.documentNumber ?? '';
-        row.cells[5].value = item.right == null ? '' : date.format(item.right!.date);
-        row.cells[6].value = item.right?.amount.toStringAsFixed(2) ?? '';
+        row.cells[3].value = item.left?.documentNumber ?? '';
+        row.cells[4].value = item.left?.amount.toStringAsFixed(2) ?? '';
+        row.cells[5].value = item.left?.description ?? '';
+        row.cells[6].value = item.right == null ? '' : date.format(item.right!.date);
+        row.cells[7].value = item.right?.documentNumber ?? '';
+        row.cells[8].value = item.right?.amount.toStringAsFixed(2) ?? '';
+        row.cells[9].value = item.right?.description ?? '';
       }
 
       grid.style = PdfGridStyle(
         font: font,
-        cellPadding: PdfPaddings(left: 4, right: 4, top: 4, bottom: 4),
+        cellPadding: PdfPaddings(left: 3, right: 3, top: 3, bottom: 3),
       );
       for (var rowIndex = 0; rowIndex < grid.rows.count; rowIndex++) {
         final row = grid.rows[rowIndex];
@@ -188,6 +195,7 @@ class ExportService {
           cell.stringFormat = PdfStringFormat(
             textDirection: PdfTextDirection.rightToLeft,
             alignment: PdfTextAlignment.center,
+            lineAlignment: PdfVerticalAlignment.middle,
           );
         }
       }
@@ -197,6 +205,7 @@ class ExportService {
         cell.stringFormat = PdfStringFormat(
           textDirection: PdfTextDirection.rightToLeft,
           alignment: PdfTextAlignment.center,
+          lineAlignment: PdfVerticalAlignment.middle,
         );
       }
       grid.draw(page: page, bounds: Rect.fromLTWH(0, 90, 0, 0));
@@ -218,6 +227,9 @@ class ExportService {
     const paths = [
       '/system/fonts/NotoNaskhArabic-Regular.ttf',
       '/system/fonts/NotoSansArabic-Regular.ttf',
+      '/system/fonts/NotoSansArabicUI-Regular.ttf',
+      '/system/fonts/DroidNaskh-Regular-SystemUI.ttf',
+      '/system/fonts/DroidSansArabic.ttf',
       '/system/fonts/DroidSansFallback.ttf',
     ];
     for (final path in paths) {
@@ -226,7 +238,9 @@ class ExportService {
         return PdfTrueTypeFont(await file.readAsBytes(), size);
       }
     }
-    return PdfStandardFont(PdfFontFamily.helvetica, size);
+    throw const FileSystemException(
+      'تعذر إنشاء PDF عربي لأن الجهاز لا يحتوي على خط عربي مدعوم. استخدم تصدير Excel على هذا الجهاز.',
+    );
   }
 
   Future<File> _writeFile(String name, String extension, Uint8List bytes) async {
