@@ -150,10 +150,14 @@ class FileImportService {
   }
 
   List<List<dynamic>> _readDelimited(Uint8List bytes, String? forcedDelimiter) {
-    final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\r\n', '\n');
+    final text = utf8
+        .decode(bytes, allowMalformed: true)
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n');
     final delimiter = forcedDelimiter ?? _detectDelimiter(text);
     return CsvToListConverter(
       fieldDelimiter: delimiter,
+      eol: '\n',
       shouldParseNumbers: false,
     ).convert(text);
   }
