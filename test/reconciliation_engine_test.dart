@@ -29,6 +29,18 @@ void main() {
     expect(result.unmatchedCount, 0);
   });
 
+  test('يظهر نفس رقم المستند مع مبلغ مختلف كغير متطابق واضح', () {
+    final result = engine.reconcile(
+      left: [record(id: 'L1', date: '2026-01-01', amount: 100, document: 'A10')],
+      right: [record(id: 'R1', date: '2026-01-01', amount: 120, document: 'A-10')],
+    );
+
+    expect(result.matchedCount, 0);
+    expect(result.unmatchedCount, 1);
+    expect(result.pairs.single.right?.id, 'R1');
+    expect(result.pairs.single.reason, contains('المبلغ مختلف'));
+  });
+
   test('لا يطابق عند اختلاف رقم المستند الموجود في الطرفين', () {
     final result = engine.reconcile(
       left: [record(id: 'L1', date: '2026-01-01', amount: 100, document: 'A10')],
