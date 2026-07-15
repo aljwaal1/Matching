@@ -36,24 +36,29 @@ jobs:
         run: |
           python3 <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('lib/main.dart')
           text = path.read_text(encoding='utf-8')
-          old = """    } catch (_) {
-              _message('حدث خطأ أثناء قراءة الملف. تأكد من سلامة الصيغة.');
-            } finally {"""
-          new = """    } catch (error, stackTrace) {
-              debugPrint('File import error: $error');
-              debugPrintStack(stackTrace: stackTrace);
-              if (mounted) {
-                _message('خطأ القراءة: ${error.runtimeType} — $error');
-              }
-            } finally {"""
-          if old in text:
-              text = text.replace(old, new, 1)
-              path.write_text(text, encoding='utf-8')
-          if 'خطأ القراءة: ${error.runtimeType} — $error' not in text:
-              raise SystemExit('Could not apply diagnostic import error message')
+          pattern = re.compile(
+              r"\s*\}\s*catch\s*\(_\)\s*\{\s*"
+              r"_message\('حدث خطأ أثناء قراءة الملف\. تأكد من سلامة الصيغة\.'\);\s*"
+              r"\}\s*finally\s*\{",
+              re.S,
+          )
+          replacement = """
+    } catch (error, stackTrace) {
+      debugPrint('File import error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        _message('خطأ القراءة: ${error.runtimeType} — $error');
+      }
+    } finally {
+"""
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('Could not locate generic import catch block')
+          path.write_text(text, encoding='utf-8')
           PY
 
       - name: Set up Java
