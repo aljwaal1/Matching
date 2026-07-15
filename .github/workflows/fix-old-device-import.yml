@@ -1,0 +1,103 @@
+name: Fix old-device file import
+
+on:
+  push:
+    branches:
+      - agent/matching-app-foundation
+    paths:
+      - .github/workflows/fix-old-device-import.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/matching-app-foundation
+      - name: Patch file picker and error reporting
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/main.dart')
+          text = path.read_text(encoding='utf-8')
+          if "import 'dart:io';" not in text:
+              text = "import 'dart:io';\nimport 'dart:typed_data';\n\n" + text
+          old = """  Future<void> _pickFile(bool first) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+      withData: true,
+    );
+    if (result == null) return;
+    final file = result.files.single;
+    if (file.bytes == null) return _message('تعذر قراءة الملف من الجهاز.');
+
+    setState(() => _busy = true);
+    try {
+      final imported = _importer.importBytes(fileName: file.name, bytes: file.bytes!);
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+      _message('تم استيراد ${imported.records.length} عملية من ${file.name}.');
+    } on FormatException catch (error) {
+      _message(error.message.toString());
+    } catch (_) {
+      _message('حدث خطأ أثناء قراءة الملف. تأكد من سلامة الصيغة.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+"""
+          new = """  Future<void> _pickFile(bool first) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+      withData: false,
+    );
+    if (result == null) return;
+    final file = result.files.single;
+
+    setState(() => _busy = true);
+    try {
+      Uint8List? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes == null || bytes.isEmpty) {
+        throw const FormatException('تعذر الحصول على محتوى الملف من الجهاز.');
+      }
+
+      final imported = _importer.importBytes(fileName: file.name, bytes: bytes);
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+      final skipped = imported.skippedRows.isEmpty
+          ? ''
+          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح.';
+      _message('تم استيراد ${imported.records.length} عملية من ${file.name}$skipped');
+    } on FormatException catch (error) {
+      if (mounted) _message('${file.name}: ${error.message}');
+    } catch (error) {
+      if (mounted) {
+        final detail = error.toString().replaceFirst('Exception: ', '');
+        _message('تعذر قراءة ${file.name}: $detail');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+"""
+          if old not in text:
+              raise SystemExit('Target _pickFile block not found')
+          text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit permanent fix
+        run: |
+          rm .github/workflows/fix-old-device-import.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart .github/workflows/fix-old-device-import.yml
+          git commit -m "fix: read selected files reliably on old Android devices"
+          git push origin HEAD:agent/matching-app-foundation

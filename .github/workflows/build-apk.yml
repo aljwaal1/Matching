@@ -1,0 +1,174 @@
+name: Build Matching APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
+  push:
+    branches:
+      - agent/matching-app-foundation
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matching-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Persist bytes-first file import
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/main.dart')
+          text = path.read_text(encoding='utf-8')
+
+          if "import 'dart:io';" not in text:
+              text = "import 'dart:io';\nimport 'dart:typed_data';\n\n" + text
+
+          start = text.index('  Future<void> _pickFile(bool first) async {')
+          end = text.index('\n\n  void _startMatching', start)
+
+          replacement = '''  Future<void> _pickFile(bool first) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+        allowMultiple: false,
+        withData: true,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('File picker error: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) _message('تعذر فتح مدير الملفات: $error');
+      return;
+    }
+
+    if (result == null || result.files.isEmpty) {
+      if (mounted) _message('لم يتم اختيار ملف.');
+      return;
+    }
+
+    final platformFile = result.files.single;
+    final fileName = platformFile.name;
+    final extension = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+
+    setState(() => _busy = true);
+    try {
+      Uint8List? bytes = platformFile.bytes;
+      if ((bytes == null || bytes.isEmpty) && platformFile.path != null) {
+        bytes = await File(platformFile.path!).readAsBytes();
+      }
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception(
+          'تعذر الوصول لبيانات الملف من الجهاز. جرّب اختيار الملف من ذاكرة الهاتف الداخلية.',
+        );
+      }
+
+      final imported = _importer.importBytes(
+        fileName: fileName,
+        bytes: bytes,
+      );
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+
+      final skipped = imported.skippedRows.isEmpty
+          ? ''
+          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح';
+      _message(
+        'تم تحميل $fileName واستيراد ${imported.records.length} عملية$skipped.',
+      );
+    } on FormatException catch (error) {
+      if (mounted) {
+        _message('فشل قراءة ملف "$fileName" (نوع: $extension). ${error.message}');
+      }
+    } catch (error, stackTrace) {
+      debugPrint('File import error for $fileName: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (mounted) {
+        _message('فشل قراءة ملف "$fileName" (نوع: $extension). تفاصيل الخطأ: $error');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }'''
+
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text, encoding='utf-8')
+          PY
+          grep -q 'withData: true' lib/main.dart
+          grep -q 'Uint8List? bytes = platformFile.bytes' lib/main.dart
+          grep -q 'تفاصيل الخطأ' lib/main.dart
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform
+        run: flutter create --platforms=android --org com.explapp --project-name matching .
+
+      - name: Configure Android app
+        run: |
+          rm -f test/widget_test.dart
+          sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
+          sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
+          grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
+          grep -q 'minSdk = 23' android/app/build.gradle.kts
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Test
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Validate and copy APK
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          mkdir -p apk
+          cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
+          printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
+          test -s apk/Matching.apk
+
+      - name: Commit source and APK
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Fix bytes-first file import and build APK"
+          git push
