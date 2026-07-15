@@ -59,7 +59,8 @@ class ArchiveService {
 
   Future<void> delete(String id) async {
     final prefs = await SharedPreferences.getInstance();
-    final items = await load()..removeWhere((e) => e.id == id);
+    final items = await load();
+    items.removeWhere((e) => e.id == id);
     await prefs.setStringList(_key, items.map((e) => jsonEncode(e.toJson())).toList());
   }
 }
