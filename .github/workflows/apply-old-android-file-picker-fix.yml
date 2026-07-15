@@ -1,0 +1,142 @@
+name: Apply old Android file picker fix
+
+on:
+  push:
+    branches:
+      - agent/matching-app-foundation
+    paths:
+      - .github/workflows/apply-old-android-file-picker-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/matching-app-foundation
+
+      - name: Patch file selection flow
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/main.dart')
+          text = path.read_text(encoding='utf-8')
+
+          imports = "import 'dart:io';\nimport 'dart:typed_data';\n\n"
+          if "import 'dart:io';" not in text:
+              text = imports + text
+
+          old = '''  Future<void> _pickFile(bool first) async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+      withData: true,
+    );
+    if (result == null) return;
+    final file = result.files.single;
+    if (file.bytes == null) return _message('تعذر قراءة الملف من الجهاز.');
+
+    setState(() => _busy = true);
+    try {
+      final imported = _importer.importBytes(fileName: file.name, bytes: file.bytes!);
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+      _message('تم استيراد ${imported.records.length} عملية من ${file.name}.');
+    } on FormatException catch (error) {
+      _message(error.message.toString());
+    } catch (_) {
+      _message('حدث خطأ أثناء قراءة الملف. تأكد من سلامة الصيغة.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+'''
+
+          new = '''  Future<void> _pickFile(bool first) async {
+    FilePickerResult? result;
+    try {
+      result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+        allowMultiple: false,
+        withData: false,
+        withReadStream: true,
+      );
+    } catch (error) {
+      if (mounted) _message('تعذر فتح نافذة الملفات: $error');
+      return;
+    }
+
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.single;
+
+    setState(() => _busy = true);
+    try {
+      Uint8List? bytes = file.bytes;
+
+      if ((bytes == null || bytes.isEmpty) && file.path != null) {
+        final selectedFile = File(file.path!);
+        if (await selectedFile.exists()) {
+          bytes = await selectedFile.readAsBytes();
+        }
+      }
+
+      if ((bytes == null || bytes.isEmpty) && file.readStream != null) {
+        final builder = BytesBuilder(copy: false);
+        await for (final chunk in file.readStream!) {
+          builder.add(chunk);
+        }
+        bytes = builder.takeBytes();
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        throw const FormatException(
+          'تم اختيار الملف، لكن تعذر الحصول على محتواه من مدير الملفات في الجهاز.',
+        );
+      }
+
+      final imported = _importer.importBytes(fileName: file.name, bytes: bytes);
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+
+      final skipped = imported.skippedRows.isEmpty
+          ? ''
+          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح.';
+      _message(
+        'تم تحميل ${file.name} واستيراد ${imported.records.length} عملية$skipped',
+      );
+    } on FormatException catch (error) {
+      if (mounted) _message('${file.name}: ${error.message}');
+    } catch (error) {
+      if (mounted) _message('${file.name}: تعذر تحميل الملف — $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+'''
+
+          if old not in text:
+              raise SystemExit('Old _pickFile block was not found')
+
+          text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify patch
+        run: |
+          grep -q "withReadStream: true" lib/main.dart
+          grep -q "file.readStream" lib/main.dart
+          grep -q "import 'dart:io';" lib/main.dart
+
+      - name: Commit permanent fix and remove temporary workflow
+        run: |
+          rm .github/workflows/apply-old-android-file-picker-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart .github/workflows/apply-old-android-file-picker-fix.yml
+          git commit -m "fix: load selected files reliably on old Android devices"
+          git push origin HEAD:agent/matching-app-foundation
