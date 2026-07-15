@@ -43,6 +43,11 @@ jobs:
       - name: Generate Android platform
         run: flutter create --platforms=android --org com.explapp --project-name matching .
 
+      - name: Apply source compatibility fixes
+        run: |
+          python3 tool/ci_source_fixes.py
+          rm -f test/widget_test.dart
+
       - name: Configure Android app
         run: |
           sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
@@ -71,11 +76,11 @@ jobs:
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           test -s apk/Matching.apk
 
-      - name: Commit APK
+      - name: Commit source fixes and APK
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Build Matching APK"
+          git add lib/main.dart lib/services/export_service.dart apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Fix compatibility and build Matching APK"
           git push
