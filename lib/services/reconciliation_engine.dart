@@ -32,36 +32,57 @@ class ReconciliationEngine {
       growable: false,
     );
     final amountIndex = <int, List<_IndexedRecord>>{};
+    final documentIndex = <String, List<_IndexedRecord>>{};
     for (final item in indexedRight) {
       amountIndex
           .putIfAbsent(_amountBucket(item.record.amount, settings.amountTolerance), () => [])
           .add(item);
+      final document = item.record.normalizedDocumentNumber;
+      if (document.isNotEmpty) {
+        documentIndex.putIfAbsent(document, () => []).add(item);
+      }
     }
 
     final usedRight = <int>{};
     final pairs = <MatchPair>[];
 
     for (final leftItem in left) {
+      final leftDocument = leftItem.normalizedDocumentNumber;
+      final sameDocumentCandidates = leftDocument.isEmpty
+          ? const <_IndexedRecord>[]
+          : (documentIndex[leftDocument] ?? const <_IndexedRecord>[])
+              .where((candidate) => !usedRight.contains(candidate.index))
+              .toList(growable: false);
+
+      if (sameDocumentCandidates.isNotEmpty) {
+        final selected = _bestDocumentCandidate(
+          leftItem,
+          sameDocumentCandidates,
+          settings,
+        );
+        usedRight.add(selected.candidate.index);
+        pairs.add(selected.pair);
+        continue;
+      }
+
       final bucket = _amountBucket(leftItem.amount, settings.amountTolerance);
       MatchPair? best;
       int? bestIndex;
 
-      // A value within the tolerance can only fall in its own bucket or one
-      // of the directly adjacent buckets.
       for (var candidateBucket = bucket - 1;
           candidateBucket <= bucket + 1;
           candidateBucket++) {
         for (final candidate in amountIndex[candidateBucket] ?? const <_IndexedRecord>[]) {
           if (usedRight.contains(candidate.index)) continue;
-          final scored = _score(leftItem, candidate.record, settings);
+          final scored = _scoreByAmountAndDate(leftItem, candidate.record, settings);
           if (scored.score <= 0) continue;
           if (best == null || scored.score > best.score) {
             best = scored;
             bestIndex = candidate.index;
-            if (scored.score == 100) break;
+            if (scored.score == 90) break;
           }
         }
-        if (best?.score == 100) break;
+        if (best?.score == 90) break;
       }
 
       if (best == null || bestIndex == null) {
@@ -90,9 +111,40 @@ class ReconciliationEngine {
     );
   }
 
+  _DocumentSelection _bestDocumentCandidate(
+    TransactionRecord left,
+    List<_IndexedRecord> candidates,
+    ReconciliationSettings settings,
+  ) {
+    _IndexedRecord selected = candidates.first;
+    var smallestDifference = (left.amount - selected.record.amount).abs();
+
+    for (final candidate in candidates.skip(1)) {
+      final difference = (left.amount - candidate.record.amount).abs();
+      if (difference < smallestDifference) {
+        selected = candidate;
+        smallestDifference = difference;
+      }
+    }
+
+    final amountMatches = smallestDifference <= settings.amountTolerance;
+    return _DocumentSelection(
+      candidate: selected,
+      pair: MatchPair(
+        left: left,
+        right: selected.record,
+        status: amountMatches ? MatchStatus.matched : MatchStatus.unmatched,
+        reason: amountMatches
+            ? 'تطابق رقم المستند والمبلغ'
+            : 'نفس رقم المستند لكن المبلغ مختلف — يحتاج مراجعة',
+        score: amountMatches ? 100 : 1,
+      ),
+    );
+  }
+
   int _amountBucket(double amount, double tolerance) => (amount / tolerance).floor();
 
-  MatchPair _score(
+  MatchPair _scoreByAmountAndDate(
     TransactionRecord left,
     TransactionRecord right,
     ReconciliationSettings settings,
@@ -104,18 +156,8 @@ class ReconciliationEngine {
     final leftDocument = left.normalizedDocumentNumber;
     final rightDocument = right.normalizedDocumentNumber;
     final bothHaveDocuments = leftDocument.isNotEmpty && rightDocument.isNotEmpty;
-
-    if (bothHaveDocuments) {
-      if (leftDocument != rightDocument) {
-        return _noMatch(left, right, 'رقم المستند مختلف');
-      }
-      return MatchPair(
-        left: left,
-        right: right,
-        status: MatchStatus.matched,
-        reason: 'تطابق رقم المستند والمبلغ',
-        score: 100,
-      );
+    if (bothHaveDocuments && leftDocument != rightDocument) {
+      return _noMatch(left, right, 'رقم المستند مختلف');
     }
 
     final dateDifference = left.date.difference(right.date).inDays.abs();
@@ -153,4 +195,11 @@ class _IndexedRecord {
 
   final int index;
   final TransactionRecord record;
+}
+
+class _DocumentSelection {
+  const _DocumentSelection({required this.candidate, required this.pair});
+
+  final _IndexedRecord candidate;
+  final MatchPair pair;
 }
