@@ -2,6 +2,12 @@ name: Build Matching APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'apk/**'
+      - 'DOWNLOAD_APK.md'
   push:
     branches:
       - agent/matching-app-foundation
@@ -13,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: matching-build-${{ github.ref }}
+  group: matching-build-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -70,6 +76,7 @@ jobs:
           test -s apk/Matching.apk
 
       - name: Commit APK
+        if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
