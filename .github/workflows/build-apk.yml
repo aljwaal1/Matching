@@ -55,16 +55,15 @@ jobs:
           grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
           grep -q 'minSdk = 23' android/app/build.gradle.kts
 
-      - name: Fix CSV line endings parser
+      - name: Persist parser and legacy picker fixes
         shell: bash
         run: |
           python3 <<'PY'
           from pathlib import Path
+          import re
 
-          path = Path('lib/services/file_import_service.dart')
-          text = path.read_text(encoding='utf-8')
-          original = text
-
+          parser = Path('lib/services/file_import_service.dart')
+          text = parser.read_text(encoding='utf-8')
           text = text.replace(
               "final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\\r\\n', '\\n');",
               "final text = utf8\n"
@@ -72,19 +71,84 @@ jobs:
               "        .replaceAll('\\r\\n', '\\n')\n"
               "        .replaceAll('\\r', '\\n');",
           )
-          text = text.replace(
-              "      fieldDelimiter: delimiter,\n      shouldParseNumbers: false,",
-              "      fieldDelimiter: delimiter,\n      eol: '\\n',\n      shouldParseNumbers: false,",
-              1,
-          )
-
           if "eol: '\\n'" not in text:
-              raise SystemExit('CSV EOL fix was not applied')
+              text = text.replace(
+                  "      fieldDelimiter: delimiter,\n      shouldParseNumbers: false,",
+                  "      fieldDelimiter: delimiter,\n      eol: '\\n',\n      shouldParseNumbers: false,",
+                  1,
+              )
+          parser.write_text(text, encoding='utf-8')
 
-          if text != original:
-              path.write_text(text, encoding='utf-8')
+          main = Path('lib/main.dart')
+          text = main.read_text(encoding='utf-8')
+          if "import 'dart:io';" not in text:
+              text = "import 'dart:io';\nimport 'dart:typed_data';\n\n" + text
+
+          pattern = re.compile(r"  Future<void> _pickFile\(bool first\) async \{.*?\n  \}\n\n  void _startMatching", re.S)
+          replacement = r'''  Future<void> _pickFile(bool first) async {
+    setState(() => _busy = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+        withData: false,
+        withReadStream: true,
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      Uint8List? bytes = file.bytes;
+
+      if ((bytes == null || bytes.isEmpty) && file.path != null) {
+        final selectedFile = File(file.path!);
+        if (await selectedFile.exists()) {
+          bytes = await selectedFile.readAsBytes();
+        }
+      }
+
+      if ((bytes == null || bytes.isEmpty) && file.readStream != null) {
+        final chunks = <int>[];
+        await for (final chunk in file.readStream!) {
+          chunks.addAll(chunk);
+        }
+        bytes = Uint8List.fromList(chunks);
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        throw const FormatException(
+          'تم اختيار الملف، لكن تعذر الحصول على محتواه. انقل الملف إلى مجلد التنزيلات ثم حاول مجدداً.',
+        );
+      }
+
+      final imported = _importer.importBytes(fileName: file.name, bytes: bytes);
+      if (!mounted) return;
+      setState(() => first ? _first = imported : _second = imported);
+
+      final skipped = imported.skippedRows.isEmpty
+          ? ''
+          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح';
+      _message('تم تحميل ${file.name} واستيراد ${imported.records.length} عملية$skipped.');
+    } on FormatException catch (error) {
+      if (mounted) _message(error.message.toString());
+    } catch (error) {
+      if (mounted) {
+        _message('تعذر تحميل الملف: ${error.runtimeType}. انقل الملف إلى مجلد التنزيلات ثم حاول مجدداً.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _startMatching'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit('File picker source was not patched')
+          main.write_text(text, encoding='utf-8')
           PY
-          grep -n -A12 "_readDelimited" lib/services/file_import_service.dart
+          grep -q "withReadStream: true" lib/main.dart
+          grep -q "import 'dart:io';" lib/main.dart
+          grep -q "eol: '\\n'" lib/services/file_import_service.dart
 
       - name: Get packages
         run: flutter pub get
@@ -106,11 +170,11 @@ jobs:
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           test -s apk/Matching.apk
 
-      - name: Commit source fix and APK
+      - name: Commit source fixes and APK
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/services/file_import_service.dart apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Fix CSV parsing and build Matching APK"
+          git add lib/main.dart lib/services/file_import_service.dart apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Fix legacy file loading and build Matching APK"
           git push
