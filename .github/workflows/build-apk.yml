@@ -55,6 +55,37 @@ jobs:
           grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
           grep -q 'minSdk = 23' android/app/build.gradle.kts
 
+      - name: Fix CSV line endings parser
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/services/file_import_service.dart')
+          text = path.read_text(encoding='utf-8')
+          original = text
+
+          text = text.replace(
+              "final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\\r\\n', '\\n');",
+              "final text = utf8\n"
+              "        .decode(bytes, allowMalformed: true)\n"
+              "        .replaceAll('\\r\\n', '\\n')\n"
+              "        .replaceAll('\\r', '\\n');",
+          )
+          text = text.replace(
+              "      fieldDelimiter: delimiter,\n      shouldParseNumbers: false,",
+              "      fieldDelimiter: delimiter,\n      eol: '\\n',\n      shouldParseNumbers: false,",
+              1,
+          )
+
+          if "eol: '\\n'" not in text:
+              raise SystemExit('CSV EOL fix was not applied')
+
+          if text != original:
+              path.write_text(text, encoding='utf-8')
+          PY
+          grep -n -A12 "_readDelimited" lib/services/file_import_service.dart
+
       - name: Get packages
         run: flutter pub get
 
@@ -75,11 +106,11 @@ jobs:
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           test -s apk/Matching.apk
 
-      - name: Commit APK
+      - name: Commit source fix and APK
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Build Matching APK"
+          git add lib/services/file_import_service.dart apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Fix CSV parsing and build Matching APK"
           git push
