@@ -86,45 +86,53 @@ jobs:
 
           pattern = re.compile(r"  Future<void> _pickFile\(bool first\) async \{.*?\n  \}\n\n  void _startMatching", re.S)
           replacement = r'''  Future<void> _pickFile(bool first) async {
+    if (mounted) _message('جاري فتح مدير الملفات...');
     setState(() => _busy = true);
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'],
+        type: FileType.any,
         withData: false,
         withReadStream: true,
         allowMultiple: false,
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.files.isEmpty) {
+        if (mounted) _message('لم يتم اختيار ملف.');
+        return;
+      }
 
       final file = result.files.single;
-      Uint8List? bytes = file.bytes;
+      final extension = file.extension?.toLowerCase() ??
+          (file.name.contains('.') ? file.name.split('.').last.toLowerCase() : '');
+      const supported = {'xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'};
+      if (!supported.contains(extension)) {
+        throw FormatException(
+          'صيغة .$extension غير مدعومة. اختر Excel أو CSV أو PDF.',
+        );
+      }
 
+      Uint8List? bytes = file.bytes;
       if ((bytes == null || bytes.isEmpty) && file.path != null) {
         final selectedFile = File(file.path!);
         if (await selectedFile.exists()) {
           bytes = await selectedFile.readAsBytes();
         }
       }
-
       if ((bytes == null || bytes.isEmpty) && file.readStream != null) {
-        final chunks = <int>[];
+        final builder = BytesBuilder(copy: false);
         await for (final chunk in file.readStream!) {
-          chunks.addAll(chunk);
+          builder.add(chunk);
         }
-        bytes = Uint8List.fromList(chunks);
+        bytes = builder.takeBytes();
       }
-
       if (bytes == null || bytes.isEmpty) {
         throw const FormatException(
-          'تم اختيار الملف، لكن تعذر الحصول على محتواه. انقل الملف إلى مجلد التنزيلات ثم حاول مجدداً.',
+          'تم اختيار الملف، لكن تعذر قراءة محتواه. انقله إلى مجلد التنزيلات ثم حاول مجدداً.',
         );
       }
 
       final imported = _importer.importBytes(fileName: file.name, bytes: bytes);
       if (!mounted) return;
       setState(() => first ? _first = imported : _second = imported);
-
       final skipped = imported.skippedRows.isEmpty
           ? ''
           : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح';
@@ -133,7 +141,7 @@ jobs:
       if (mounted) _message(error.message.toString());
     } catch (error) {
       if (mounted) {
-        _message('تعذر تحميل الملف: ${error.runtimeType}. انقل الملف إلى مجلد التنزيلات ثم حاول مجدداً.');
+        _message('تعذر تحميل الملف (${error.runtimeType}). جرّب نقله إلى مجلد التنزيلات.');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -146,6 +154,7 @@ jobs:
               raise SystemExit('File picker source was not patched')
           main.write_text(text, encoding='utf-8')
           PY
+          grep -q "type: FileType.any" lib/main.dart
           grep -q "withReadStream: true" lib/main.dart
           grep -q "import 'dart:io';" lib/main.dart
           grep -q "eol: '\\n'" lib/services/file_import_service.dart
@@ -176,5 +185,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/main.dart lib/services/file_import_service.dart apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Fix legacy file loading and build Matching APK"
+          git diff --cached --quiet || git commit -m "Fix general file picker and build Matching APK"
           git push
