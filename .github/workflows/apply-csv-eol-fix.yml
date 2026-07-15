@@ -1,0 +1,59 @@
+name: Apply CSV EOL Fix
+
+on:
+  push:
+    branches:
+      - agent/matching-app-foundation
+    paths:
+      - .github/workflows/apply-csv-eol-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/matching-app-foundation
+      - name: Patch CSV parser
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/services/file_import_service.dart')
+          text = path.read_text(encoding='utf-8')
+          old = """  List<List<dynamic>> _readDelimited(Uint8List bytes, String? forcedDelimiter) {
+    final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\\r\\n', '\\n');
+    final delimiter = forcedDelimiter ?? _detectDelimiter(text);
+    return CsvToListConverter(
+      fieldDelimiter: delimiter,
+      shouldParseNumbers: false,
+    ).convert(text);
+  }
+"""
+          new = """  List<List<dynamic>> _readDelimited(Uint8List bytes, String? forcedDelimiter) {
+    final text = utf8
+        .decode(bytes, allowMalformed: true)
+        .replaceAll('\\r\\n', '\\n')
+        .replaceAll('\\r', '\\n');
+    final delimiter = forcedDelimiter ?? _detectDelimiter(text);
+    return CsvToListConverter(
+      fieldDelimiter: delimiter,
+      eol: '\\n',
+      shouldParseNumbers: false,
+    ).convert(text);
+  }
+"""
+          if old not in text:
+              raise SystemExit('Target CSV parser block not found')
+          path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+      - name: Remove temporary workflow and commit fix
+        run: |
+          rm .github/workflows/apply-csv-eol-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/services/file_import_service.dart .github/workflows/apply-csv-eol-fix.yml
+          git commit -m "fix: parse CSV files with LF and CR line endings"
+          git push origin HEAD:agent/matching-app-foundation
