@@ -19,10 +19,15 @@ void main() {
 
     expect(imported.records, hasLength(1));
     expect(imported.skippedRows, hasLength(2));
-    expect(imported.skippedRows.first.rowNumber, 3);
-    expect(imported.skippedRows.first.reason, contains('التاريخ'));
-    expect(imported.skippedRows.last.rowNumber, 4);
-    expect(imported.skippedRows.last.reason, contains('المبلغ'));
-    expect(imported.fileName, contains('تم تجاهل 2 صف'));
+
+    final skippedByRow = {
+      for (final skipped in imported.skippedRows) skipped.rowNumber: skipped,
+    };
+
+    expect(skippedByRow.keys, containsAll(<int>[3, 4]));
+    expect(skippedByRow[3]!.reason, contains('التاريخ'));
+    expect(skippedByRow[3]!.rawValues, contains('A2'));
+    expect(skippedByRow[4]!.reason, contains('المبلغ'));
+    expect(skippedByRow[4]!.rawValues, contains('A3'));
   });
 }
