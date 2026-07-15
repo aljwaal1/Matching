@@ -30,146 +30,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: agent/matching-app-foundation
 
-      - name: Persist final source code and clean workflow
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          main = Path('lib/main.dart')
-          text = main.read_text(encoding='utf-8')
-          if "import 'dart:io';" not in text:
-              text = "import 'dart:io';\nimport 'dart:typed_data';\n\n" + text
-
-          pattern = re.compile(
-              r"  Future<void> _pickFile\(bool first\) async \{.*?\n  \}\n\n  void _startMatching",
-              re.S,
-          )
-          replacement = r'''  Future<void> _pickFile(bool first) async {
-    if (mounted) _message('جاري فتح مدير الملفات...');
-    setState(() => _busy = true);
-    try {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        withData: false,
-        withReadStream: true,
-        allowMultiple: false,
-      );
-      if (result == null || result.files.isEmpty) {
-        if (mounted) _message('لم يتم اختيار ملف.');
-        return;
-      }
-
-      final file = result.files.single;
-      final extension = file.name.contains('.')
-          ? file.name.split('.').last.toLowerCase()
-          : '';
-      const supported = {'xlsx', 'xls', 'csv', 'tsv', 'txt', 'pdf'};
-      if (!supported.contains(extension)) {
-        throw FormatException(
-          'صيغة .$extension غير مدعومة. اختر Excel أو CSV أو PDF.',
-        );
-      }
-
-      Uint8List? bytes = file.bytes;
-      if ((bytes == null || bytes.isEmpty) && file.path != null) {
-        final selectedFile = File(file.path!);
-        if (await selectedFile.exists()) {
-          bytes = await selectedFile.readAsBytes();
-        }
-      }
-      if ((bytes == null || bytes.isEmpty) && file.readStream != null) {
-        final builder = BytesBuilder(copy: false);
-        await for (final chunk in file.readStream!) {
-          builder.add(chunk);
-        }
-        bytes = builder.takeBytes();
-      }
-      if (bytes == null || bytes.isEmpty) {
-        throw const FormatException(
-          'تم اختيار الملف، لكن تعذر قراءة محتواه. انقله إلى مجلد التنزيلات ثم حاول مجدداً.',
-        );
-      }
-
-      final imported = _importer.importBytes(
-        fileName: file.name,
-        bytes: bytes,
-      );
-      if (!mounted) return;
-      setState(() => first ? _first = imported : _second = imported);
-
-      final skipped = imported.skippedRows.isEmpty
-          ? ''
-          : ' وتم تجاهل ${imported.skippedRows.length} صف غير صالح';
-      _message(
-        'تم تحميل ${file.name} واستيراد ${imported.records.length} عملية$skipped.',
-      );
-    } on FormatException catch (error) {
-      if (mounted) _message(error.message.toString());
-    } catch (error) {
-      if (mounted) {
-        _message(
-          'تعذر تحميل الملف (${error.runtimeType}). جرّب نقله إلى مجلد التنزيلات.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _startMatching'''
-          text, count = pattern.subn(replacement, text, count=1)
-          if count != 1:
-              raise SystemExit('Could not persist file picker implementation')
-          main.write_text(text, encoding='utf-8')
-
-          clean = '''name: Build Matching APK
-
-on:
-  workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - 'apk/**'
-      - 'DOWNLOAD_APK.md'
-  push:
-    branches:
-      - agent/matching-app-foundation
-    paths-ignore:
-      - 'apk/**'
-      - 'DOWNLOAD_APK.md'
-
-permissions:
-  contents: write
-
-concurrency:
-  group: matching-build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
+
       - name: Generate Android platform
         run: flutter create --platforms=android --org com.explapp --project-name matching .
+
       - name: Configure Android app
         run: |
           rm -f test/widget_test.dart
@@ -178,14 +54,19 @@ jobs:
           sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
           grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
           grep -q 'minSdk = 23' android/app/build.gradle.kts
+
       - name: Get packages
         run: flutter pub get
+
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
       - name: Test
         run: flutter test
+
       - name: Build release APK
         run: flutter build apk --release --no-tree-shake-icons
+
       - name: Validate and copy APK
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
@@ -193,6 +74,7 @@ jobs:
           cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           test -s apk/Matching.apk
+
       - name: Commit APK
         if: github.event_name == 'push'
         run: |
@@ -200,57 +82,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apk/Matching.apk DOWNLOAD_APK.md
           git diff --cached --quiet || git commit -m "Build Matching APK"
-          git push
-'''
-          Path('.github/workflows/build-apk.yml').write_text(clean, encoding='utf-8')
-          PY
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Generate Android platform
-        run: flutter create --platforms=android --org com.explapp --project-name matching .
-
-      - name: Configure Android app
-        run: |
-          rm -f test/widget_test.dart
-          sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
-          sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
-
-      - name: Get packages
-        run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
-
-      - name: Test
-        run: flutter test
-
-      - name: Build release APK
-        run: flutter build apk --release --no-tree-shake-icons
-
-      - name: Validate and copy APK
-        run: |
-          test -s build/app/outputs/flutter-apk/app-release.apk
-          mkdir -p apk
-          cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
-          printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
-
-      - name: Commit real source, clean workflow, and APK
-        if: github.event_name == 'push'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/main.dart .github/workflows/build-apk.yml apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Persist file picker fix and simplify build workflow"
           git push
