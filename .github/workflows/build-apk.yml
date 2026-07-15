@@ -31,6 +31,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Expose real import errors
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/main.dart')
+          text = path.read_text(encoding='utf-8')
+          old = """    } catch (_) {
+              _message('حدث خطأ أثناء قراءة الملف. تأكد من سلامة الصيغة.');
+            } finally {"""
+          new = """    } catch (error, stackTrace) {
+              debugPrint('File import error: $error');
+              debugPrintStack(stackTrace: stackTrace);
+              if (mounted) {
+                _message('خطأ القراءة: ${error.runtimeType} — $error');
+              }
+            } finally {"""
+          if old in text:
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+          if 'خطأ القراءة: ${error.runtimeType} — $error' not in text:
+              raise SystemExit('Could not apply diagnostic import error message')
+          PY
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -75,11 +100,11 @@ jobs:
           printf '# تحميل التطبيق\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           test -s apk/Matching.apk
 
-      - name: Commit APK
+      - name: Commit source and APK
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk/Matching.apk DOWNLOAD_APK.md
-          git diff --cached --quiet || git commit -m "Build Matching APK"
+          git add lib/main.dart apk/Matching.apk DOWNLOAD_APK.md
+          git diff --cached --quiet || git commit -m "Show real file import error and build APK"
           git push
