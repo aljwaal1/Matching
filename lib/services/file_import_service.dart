@@ -47,19 +47,30 @@ class FileImportService {
   ];
   static const _balanceNames = ['الرصيد', 'balance', 'running balance'];
   static const _descNames = [
-    'البيان', 'الوصف', 'تفاصيل', 'شرح', 'description', 'details', 'narration', 'memo',
+    'البيان', 'الوصف', 'تفاصيل', 'شرح', 'description', 'details',
+    'narration', 'memo',
   ];
 
-  ImportedStatement importBytes({required String fileName, required Uint8List bytes}) {
+  ImportedStatement importBytes({
+    required String fileName,
+    required Uint8List bytes,
+  }) {
     if (bytes.isEmpty) throw const FormatException('الملف فارغ.');
-    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
-    final table = switch (ext) {
+    final extension = fileName.contains('.')
+        ? fileName.split('.').last.toLowerCase()
+        : '';
+
+    final table = switch (extension) {
       'xlsx' => _readXlsxDirect(bytes),
-      'csv' || 'txt' || 'tsv' => _readDelimited(bytes, ext == 'tsv' ? '\t' : null),
+      'csv' || 'txt' || 'tsv' =>
+        _readDelimited(bytes, extension == 'tsv' ? '\t' : null),
       'pdf' => _readPdf(bytes),
-      'xls' => throw const FormatException('صيغة XLS القديمة غير مدعومة. احفظ الملف بصيغة XLSX.'),
-      _ => throw FormatException('صيغة الملف .$ext غير مدعومة.'),
+      'xls' => throw const FormatException(
+          'صيغة XLS القديمة غير مدعومة. احفظ الملف بصيغة XLSX.',
+        ),
+      _ => throw FormatException('صيغة الملف .$extension غير مدعومة.'),
     };
+
     if (table.length < 2) {
       throw const FormatException('الملف لا يحتوي على صف عناوين وبيانات.');
     }
@@ -79,14 +90,17 @@ class FileImportService {
     final docCol = _find(headers, _docNames);
     final descCol = _find(headers, _descNames);
 
-    if (dateCol == null || (amountCol == null && debitCol == null && creditCol == null)) {
+    if (dateCol == null ||
+        (amountCol == null && debitCol == null && creditCol == null)) {
       throw FormatException(
-        'تعذر تحديد عمود التاريخ أو مبلغ الحركة تلقائياً. الأعمدة المقروءة: ${headers.join(' | ')}',
+        'تعذر تحديد عمود التاريخ أو مبلغ الحركة تلقائياً. '
+        'الأعمدة المقروءة: ${headers.join(' | ')}',
       );
     }
 
     final records = <TransactionRecord>[];
     final skipped = <SkippedRow>[];
+
     for (var index = 0; index < rows.length; index++) {
       final rowNumber = headerIndex + index + 2;
       try {
@@ -95,8 +109,24 @@ class FileImportService {
         final direct = _amount(_cell(row, amountCol));
         final debit = _amount(_cell(row, debitCol)) ?? 0;
         final credit = _amount(_cell(row, creditCol)) ?? 0;
-        // الرصيد لا يمثل مبلغ الحركة، ولذلك لا يستخدم إلا للتشخيص.
-        final amount = direct ?? (debit != 0 ? debit : (credit != 0 ? credit : null));
+
+        double? amount;
+        EntrySide side = EntrySide.unknown;
+        if (direct != null && direct != 0) {
+          amount = direct.abs();
+        } else if (debit != 0 && credit == 0) {
+          amount = debit.abs();
+          side = EntrySide.debit;
+        } else if (credit != 0 && debit == 0) {
+          amount = credit.abs();
+          side = EntrySide.credit;
+        } else if (debit != 0 && credit != 0) {
+          skipped.add(SkippedRow(
+            rowNumber,
+            'الصف يحتوي على مبلغ مدين ودائن معاً ويحتاج مراجعة',
+          ));
+          continue;
+        }
 
         if (date == null || amount == null || amount == 0) {
           final balance = _amount(_cell(row, balanceCol));
@@ -104,7 +134,8 @@ class FileImportService {
             rowNumber,
             date == null
                 ? 'تعذر فهم التاريخ'
-                : 'تعذر فهم المدين أو الدائن${balance == null ? '' : ' (الرصيد $balance ليس مبلغ حركة)'}',
+                : 'تعذر فهم المدين أو الدائن'
+                    '${balance == null ? '' : ' (الرصيد $balance ليس مبلغ حركة)'}',
           ));
           continue;
         }
@@ -112,10 +143,11 @@ class FileImportService {
         records.add(TransactionRecord(
           id: '$fileName-$rowNumber',
           date: date,
-          amount: amount.abs(),
+          amount: amount,
           documentNumber: _nullable(_cell(row, docCol)),
           description: _clean(_cell(row, descCol)),
           sourceRow: rowNumber,
+          side: side,
         ));
       } catch (error) {
         skipped.add(SkippedRow(rowNumber, 'تعذر قراءة الصف: $error'));
@@ -123,8 +155,11 @@ class FileImportService {
     }
 
     if (records.isEmpty) {
-      throw FormatException('لم يتم العثور على عمليات صالحة. تم تجاهل ${skipped.length} صف.');
+      throw FormatException(
+        'لم يتم العثور على عمليات صالحة. تم تجاهل ${skipped.length} صف.',
+      );
     }
+
     return ImportedStatement(
       fileName: fileName,
       records: List.unmodifiable(records),
@@ -138,24 +173,34 @@ class FileImportService {
       final sharedStrings = <String>[];
       final sharedFile = archive.findFile('xl/sharedStrings.xml');
       if (sharedFile != null) {
-        final xml = XmlDocument.parse(utf8.decode(_archiveBytes(sharedFile)));
-        for (final item in xml.findAllElements('si')) {
-          sharedStrings.add(item.findAllElements('t').map((e) => e.innerText).join());
+        final document = XmlDocument.parse(
+          utf8.decode(_archiveBytes(sharedFile)),
+        );
+        for (final item in document.findAllElements('si')) {
+          sharedStrings.add(
+            item.findAllElements('t').map((element) => element.innerText).join(),
+          );
         }
       }
 
-      final worksheetFiles = archive.files
-          .where((file) => file.isFile && RegExp(r'^xl/worksheets/sheet\d+\.xml$').hasMatch(file.name))
+      final worksheets = archive.files
+          .where((file) =>
+              file.isFile &&
+              RegExp(r'^xl/worksheets/sheet\d+\.xml$').hasMatch(file.name))
           .toList(growable: false);
-      if (worksheetFiles.isEmpty) {
-        throw const FormatException('ملف XLSX لا يحتوي على ورقة بيانات قابلة للقراءة.');
+      if (worksheets.isEmpty) {
+        throw const FormatException(
+          'ملف XLSX لا يحتوي على ورقة بيانات قابلة للقراءة.',
+        );
       }
 
       List<List<dynamic>> best = const [];
-      for (final file in worksheetFiles) {
-        final xml = XmlDocument.parse(utf8.decode(_archiveBytes(file)));
+      for (final file in worksheets) {
+        final document = XmlDocument.parse(
+          utf8.decode(_archiveBytes(file)),
+        );
         final rows = <List<dynamic>>[];
-        for (final rowElement in xml.findAllElements('row')) {
+        for (final rowElement in document.findAllElements('row')) {
           final cells = <int, dynamic>{};
           var maxColumn = -1;
           for (final cell in rowElement.findElements('c')) {
@@ -170,7 +215,9 @@ class FileImportService {
               final raw = values.isEmpty ? '' : values.first.innerText;
               if (type == 's') {
                 final sharedIndex = int.tryParse(raw);
-                value = sharedIndex != null && sharedIndex >= 0 && sharedIndex < sharedStrings.length
+                value = sharedIndex != null &&
+                        sharedIndex >= 0 &&
+                        sharedIndex < sharedStrings.length
                     ? sharedStrings[sharedIndex]
                     : raw;
               } else if (type == 'b') {
@@ -183,7 +230,9 @@ class FileImportService {
             if (column > maxColumn) maxColumn = column;
           }
           if (maxColumn >= 0) {
-            rows.add(List<dynamic>.generate(maxColumn + 1, (column) => cells[column]));
+            rows.add(
+              List<dynamic>.generate(maxColumn + 1, (column) => cells[column]),
+            );
           }
         }
         if (rows.length > best.length) best = rows;
@@ -219,7 +268,9 @@ class FileImportService {
         .replaceAll('\r', '\n');
     final first = text.split('\n').first;
     final candidates = [',', ';', '\t'];
-    candidates.sort((a, b) => b.allMatches(first).length.compareTo(a.allMatches(first).length));
+    candidates.sort(
+      (a, b) => b.allMatches(first).length.compareTo(a.allMatches(first).length),
+    );
     return CsvToListConverter(
       fieldDelimiter: forced ?? candidates.first,
       eol: '\n',
@@ -248,7 +299,7 @@ class FileImportService {
 
   List<List<dynamic>> _parseStatementPdf(String text) {
     final rows = <List<dynamic>>[
-      ['Date', 'Doc No', 'Description', 'Amount'],
+      ['Date', 'Doc No', 'Description', 'Debit', 'Credit', 'Balance'],
     ];
     final normalized = text
         .replaceAll('\u00a0', ' ')
@@ -259,35 +310,63 @@ class FileImportService {
     );
     final dates = datePattern.allMatches(normalized).toList(growable: false);
     final amountPattern = RegExp(r'(?<![A-Za-z])[-(]?[0-9][0-9,]*(?:\.\d+)?\)?');
-    final documentPattern = RegExp(r'\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b');
+    final documentPattern = RegExp(
+      r'\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b',
+    );
 
     for (var index = 0; index < dates.length; index++) {
       final dateMatch = dates[index];
-      final end = index + 1 < dates.length ? dates[index + 1].start : normalized.length;
-      var chunk = normalized.substring(dateMatch.end, end).replaceAll(RegExp(r'\s+'), ' ').trim();
+      final end = index + 1 < dates.length
+          ? dates[index + 1].start
+          : normalized.length;
+      var chunk = normalized
+          .substring(dateMatch.end, end)
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
       if (chunk.isEmpty) continue;
 
       var documentNumber = '';
       final documentMatch = documentPattern.firstMatch(chunk);
       if (documentMatch != null) {
         documentNumber = documentMatch.group(0) ?? '';
-        chunk = '${chunk.substring(0, documentMatch.start)} ${chunk.substring(documentMatch.end)}'.trim();
+        chunk = '${chunk.substring(0, documentMatch.start)} '
+            '${chunk.substring(documentMatch.end)}'
+            .trim();
       }
 
       final amounts = amountPattern.allMatches(chunk).toList(growable: false);
       if (amounts.isEmpty) continue;
-      // بعد إزالة رقم المستند، أول رقم هو مبلغ المدين أو الدائن، وآخر رقم غالباً الرصيد.
       final transactionAmount = amounts.first;
       final amountText = transactionAmount.group(0) ?? '';
+      final balanceText = amounts.length > 1 ? amounts.last.group(0) ?? '' : '';
       final description = chunk.substring(0, transactionAmount.start).trim();
+      final side = _sideFromPdfDescription(description);
+
       rows.add([
         dateMatch.group(0) ?? '',
         documentNumber,
         description,
-        amountText,
+        side == EntrySide.debit ? amountText : '',
+        side == EntrySide.credit ? amountText : '',
+        balanceText,
       ]);
     }
     return rows;
+  }
+
+  EntrySide _sideFromPdfDescription(String description) {
+    final value = _norm(description);
+    const creditWords = [
+      'receipt', 'payment received', 'cash receipt', 'collection',
+      'قبض', 'تحصيل', 'سداد', 'دفعة مستلمة',
+    ];
+    const debitWords = [
+      'invoice', 'sales invoice', 'service fee', 'charge',
+      'فاتورة', 'رسوم', 'تحميل',
+    ];
+    if (creditWords.any(value.contains)) return EntrySide.credit;
+    if (debitWords.any(value.contains)) return EntrySide.debit;
+    return EntrySide.unknown;
   }
 
   int _findHeader(List<List<dynamic>> table) {
@@ -318,7 +397,9 @@ class FileImportService {
 
   int? _find(List<String> headers, List<String> names) {
     for (var index = 0; index < headers.length; index++) {
-      if (names.any((name) => _headerMatches(headers[index], name))) return index;
+      if (names.any((name) => _headerMatches(headers[index], name))) {
+        return index;
+      }
     }
     return null;
   }
@@ -326,6 +407,7 @@ class FileImportService {
   bool _headerMatches(String header, String name) {
     final normalizedHeader = _norm(header);
     final normalizedName = _norm(name);
+    if (normalizedHeader.isEmpty || normalizedName.isEmpty) return false;
     return normalizedHeader == normalizedName ||
         normalizedHeader.contains(normalizedName) ||
         normalizedName.contains(normalizedHeader);
@@ -335,7 +417,10 @@ class FileImportService {
     var best = 0;
     int? column;
     for (var current = 0; current < count; current++) {
-      final score = rows.take(40).where((row) => _date(_cell(row, current)) != null).length;
+      final score = rows
+          .take(40)
+          .where((row) => _date(_cell(row, current)) != null)
+          .length;
       if (score > best) {
         best = score;
         column = current;
@@ -385,7 +470,9 @@ class FileImportService {
     final month = b;
     final day = a > 1900 ? c : a;
     final result = DateTime(year, month, day);
-    if (result.year != year || result.month != month || result.day != day) return null;
+    if (result.year != year || result.month != month || result.day != day) {
+      return null;
+    }
     return result;
   }
 
