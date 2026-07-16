@@ -1,5 +1,7 @@
 enum MatchStatus { matched, probable, unmatched }
 
+enum EntrySide { debit, credit, unknown }
+
 class TransactionRecord {
   const TransactionRecord({
     required this.id,
@@ -8,6 +10,7 @@ class TransactionRecord {
     this.documentNumber,
     this.description = '',
     this.sourceRow,
+    this.side = EntrySide.unknown,
   });
 
   final String id;
@@ -16,11 +19,18 @@ class TransactionRecord {
   final String? documentNumber;
   final String description;
   final int? sourceRow;
+  final EntrySide side;
 
   String get normalizedDocumentNumber => (documentNumber ?? '')
       .trim()
       .toLowerCase()
       .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]'), '');
+
+  String get sideLabel => switch (side) {
+        EntrySide.debit => 'مدين',
+        EntrySide.credit => 'دائن',
+        EntrySide.unknown => 'غير محدد',
+      };
 }
 
 class MatchPair {
