@@ -61,6 +61,19 @@ void main() {
     expect(result.matchedCount, 1);
   });
 
+  test('يرفض تطابق رقم المستند إذا تجاوز فرق التاريخ المسموح', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
+      right: [tx('r', '2026-01-10', 100, doc: 'A1')],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.bank,
+        allowedDateDifferenceDays: 3,
+      ),
+    );
+    expect(result.matchedCount, 0);
+    expect(result.pairs.single.reason, contains('فرق التاريخ'));
+  });
+
   test('لا يطابق العملية نفسها حتى عند تغيير اسم الملف لأن الهوية من المحتوى', () {
     final record = tx('fingerprint-2', '2026-01-01', 100, side: EntrySide.debit);
     final result = engine.reconcile(
