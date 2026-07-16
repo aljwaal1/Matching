@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import 'models/transaction_record.dart';
+import 'services/archive_service.dart';
 import 'services/export_service.dart';
 import 'services/file_import_service.dart';
 import 'services/reconciliation_engine.dart';
@@ -19,53 +20,90 @@ class MatchingApp extends StatelessWidget {
   const MatchingApp({super.key});
   @override
   Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    title: 'مطابقة الحسابات',
-    locale: const Locale('ar'),
-    theme: ThemeData(
-      useMaterial3: true,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B5B)),
-      scaffoldBackgroundColor: const Color(0xFFF5F8F7),
-    ),
-    home: const Directionality(textDirection: TextDirection.rtl, child: HomeScreen()),
-  );
+        debugShowCheckedModeBanner: false,
+        title: 'مطابقة الحسابات',
+        locale: const Locale('ar'),
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B5B)),
+          scaffoldBackgroundColor: const Color(0xFFF5F8F7),
+        ),
+        home: const Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(),
+        ),
+      );
 }
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('مطابقة الحسابات'), centerTitle: true),
-    body: ListView(
-      padding: const EdgeInsets.all(20),
-      children: [
-        const Card(child: Padding(padding: EdgeInsets.all(18), child: Text('اختر نوع المطابقة ثم ارفع كشفين بصيغة Excel أو CSV أو PDF نصي.', textAlign: TextAlign.center))),
-        const SizedBox(height: 18),
-        _TypeCard(
-          icon: Icons.people_alt_outlined,
-          title: 'مطابقة العملاء والموردين',
-          subtitle: 'مطابقة كشف العميل مع كشف المورد مهما اختلف ترتيب الأعمدة.',
-          onTap: () => _open(context, 'مطابقة العملاء والموردين'),
+        appBar: AppBar(
+          title: const Text('مطابقة الحسابات'),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: 'الأرشيف',
+              icon: const Icon(Icons.inventory_2_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: ArchiveHomeScreen(),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 14),
-        _TypeCard(
-          icon: Icons.account_balance_outlined,
-          title: 'مطابقة كشف البنك',
-          subtitle: 'مطابقة كشف البنك مع السجل المحاسبي بفارق تاريخ مسموح.',
-          onTap: () => _open(context, 'مطابقة كشف البنك'),
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(18),
+                child: Text(
+                  'ارفع كشفين بصيغة XLSX أو CSV أو PDF نصي. عند تعذر التعرف على الأعمدة سيطلب منك التطبيق تحديدها.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            _TypeCard(
+              icon: Icons.people_alt_outlined,
+              title: 'مطابقة العملاء والموردين',
+              subtitle: 'يشترط أن يقابل المدين الدائن والعكس.',
+              onTap: () => _open(context, ReconciliationMode.parties),
+            ),
+            const SizedBox(height: 14),
+            _TypeCard(
+              icon: Icons.account_balance_outlined,
+              title: 'مطابقة كشف البنك',
+              subtitle: 'مطابقة كشف البنك مع السجل المحاسبي حسب المستند أو المبلغ والتاريخ.',
+              onTap: () => _open(context, ReconciliationMode.bank),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 
-  void _open(BuildContext context, String title) => Navigator.of(context).push(
-    MaterialPageRoute(builder: (_) => Directionality(textDirection: TextDirection.rtl, child: SetupScreen(title: title))),
-  );
+  void _open(BuildContext context, ReconciliationMode mode) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: SetupScreen(mode: mode),
+        ),
+      ),
+    );
+  }
 }
 
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({super.key, required this.title});
-  final String title;
+  const SetupScreen({super.key, required this.mode});
+  final ReconciliationMode mode;
   @override
   State<SetupScreen> createState() => _SetupScreenState();
 }
@@ -77,24 +115,19 @@ class _SetupScreenState extends State<SetupScreen> {
   bool _busy = false;
   int _days = 3;
 
+  String get title => widget.mode == ReconciliationMode.bank
+      ? 'مطابقة كشف البنك'
+      : 'مطابقة العملاء والموردين';
+
   Future<void> _pick(bool first) async {
-    FilePickerResult? result;
-    try {
-      result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: const ['xlsx','xls','csv','tsv','txt','pdf'],
-        allowMultiple: false,
-        withData: true,
-      );
-    } catch (e) {
-      _message('تعذر فتح مدير الملفات: $e');
-      return;
-    }
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xlsx', 'csv', 'tsv', 'txt', 'pdf'],
+      allowMultiple: false,
+      withData: true,
+    );
     if (result == null || result.files.isEmpty) return;
     final file = result.files.single;
-    final fileName = file.name;
-    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
-
     setState(() => _busy = true);
     try {
       Uint8List? bytes = file.bytes;
@@ -102,20 +135,100 @@ class _SetupScreenState extends State<SetupScreen> {
         bytes = await File(file.path!).readAsBytes();
       }
       if (bytes == null || bytes.isEmpty) {
-        throw Exception('تعذر الوصول إلى بيانات الملف من الجهاز. انقل الملف إلى ذاكرة الهاتف الداخلية ثم أعد المحاولة.');
+        throw const FormatException('تعذر الوصول إلى بيانات الملف من الجهاز.');
       }
-      final imported = _importer.importBytes(fileName: fileName, bytes: bytes);
+      ImportedStatement imported;
+      try {
+        imported = _importer.importBytes(fileName: file.name, bytes: bytes);
+      } on ColumnDetectionException catch (error) {
+        final mapping = await _askMapping(error.prepared);
+        if (mapping == null) return;
+        imported = _importer.buildStatement(error.prepared, mapping);
+      }
       if (!mounted) return;
       setState(() => first ? _first = imported : _second = imported);
-      final skipped = imported.skippedRows.isEmpty ? '' : '، وتم تجاهل ${imported.skippedRows.length} صف';
-      _message('تم استيراد ${imported.records.length} عملية من $fileName$skipped.');
-    } on FormatException catch (e) {
-      _message('فشل قراءة "$fileName" (نوع: $ext): ${e.message}');
-    } catch (e) {
-      _message('فشل قراءة "$fileName" (نوع: $ext). تفاصيل الخطأ: $e');
+      _message(
+        'تم استيراد ${imported.records.length} عملية من ${file.name}'
+        '${imported.skippedRows.isEmpty ? '' : '، وتجاهل ${imported.skippedRows.length} صف'}',
+      );
+    } on FormatException catch (error) {
+      _message(error.message.toString());
+    } catch (error) {
+      _message('تعذر قراءة الملف: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<ColumnMapping?> _askMapping(PreparedStatement prepared) async {
+    int? date;
+    int? document;
+    int? amount;
+    int? debit;
+    int? credit;
+    int? description;
+    return showDialog<ColumnMapping>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setLocal) {
+          DropdownButtonFormField<int?> field(
+            String label,
+            int? value,
+            ValueChanged<int?> onChanged, {
+            bool required = false,
+          }) => DropdownButtonFormField<int?>(
+                value: value,
+                decoration: InputDecoration(labelText: label),
+                items: [
+                  if (!required) const DropdownMenuItem(value: null, child: Text('غير مستخدم')),
+                  ...List.generate(
+                    prepared.headers.length,
+                    (index) => DropdownMenuItem(
+                      value: index,
+                      child: Text('${index + 1} - ${prepared.headers[index]}'),
+                    ),
+                  ),
+                ],
+                onChanged: onChanged,
+              );
+          return AlertDialog(
+            title: const Text('تحديد الأعمدة يدويًا'),
+            content: SingleChildScrollView(
+              child: Column(
+                children: [
+                  field('عمود التاريخ', date, (v) => setLocal(() => date = v), required: true),
+                  field('رقم المستند', document, (v) => setLocal(() => document = v)),
+                  field('المبلغ المباشر', amount, (v) => setLocal(() => amount = v)),
+                  field('المدين', debit, (v) => setLocal(() => debit = v)),
+                  field('الدائن', credit, (v) => setLocal(() => credit = v)),
+                  field('البيان', description, (v) => setLocal(() => description = v)),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+              FilledButton(
+                onPressed: date == null || (amount == null && debit == null && credit == null)
+                    ? null
+                    : () => Navigator.pop(
+                          context,
+                          ColumnMapping(
+                            date: date!,
+                            document: document,
+                            amount: amount,
+                            debit: debit,
+                            credit: credit,
+                            description: description,
+                          ),
+                        ),
+                child: const Text('اعتماد'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _match() {
@@ -123,152 +236,349 @@ class _SetupScreenState extends State<SetupScreen> {
       _message('اختر الملفين أولاً.');
       return;
     }
-    final result = const ReconciliationEngine().reconcile(
-      left: _first!.records,
-      right: _second!.records,
-      settings: ReconciliationSettings(allowedDateDifferenceDays: _days),
-    );
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: ResultsScreen(title: widget.title, firstName: _first!.fileName, secondName: _second!.fileName, result: result),
-      ),
-    ));
+    setState(() => _busy = true);
+    try {
+      final result = const ReconciliationEngine().reconcile(
+        left: _first!.records,
+        right: _second!.records,
+        settings: ReconciliationSettings(
+          allowedDateDifferenceDays: _days,
+          mode: widget.mode,
+        ),
+      );
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: ResultsScreen(
+              mode: widget.mode,
+              firstName: _first!.fileName,
+              secondName: _second!.fileName,
+              result: result,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   void _message(String text) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 5)));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(widget.title)),
-    body: Stack(
-      children: [
-        ListView(
-          padding: const EdgeInsets.all(20),
+        appBar: AppBar(title: Text(title)),
+        body: Stack(
           children: [
-            _FileCard(number: 1, label: 'كشف الطرف الأول', statement: _first, onTap: () => _pick(true)),
-            const SizedBox(height: 12),
-            _FileCard(number: 2, label: 'كشف الطرف الثاني', statement: _second, onTap: () => _pick(false)),
-            const SizedBox(height: 18),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('فرق التاريخ المسموح', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('حتى $_days أيام'),
-                  Slider(value: _days.toDouble(), min: 0, max: 3, divisions: 3, label: '$_days', onChanged: (v) => setState(() => _days = v.round())),
-                ]),
-              ),
+            ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                _FileCard(number: 1, label: 'كشف الطرف الأول', statement: _first, onTap: () => _pick(true)),
+                const SizedBox(height: 12),
+                _FileCard(number: 2, label: 'كشف الطرف الثاني', statement: _second, onTap: () => _pick(false)),
+                const SizedBox(height: 18),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('فرق التاريخ المسموح', style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text('حتى $_days أيام'),
+                        Slider(
+                          value: _days.toDouble(),
+                          min: 0,
+                          max: 3,
+                          divisions: 3,
+                          onChanged: (value) => setState(() => _days = value.round()),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _match,
+                  icon: const Icon(Icons.compare_arrows),
+                  label: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 14),
+                    child: Text('بدء المطابقة'),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 18),
-            FilledButton.icon(onPressed: _busy ? null : _match, icon: const Icon(Icons.compare_arrows), label: const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Text('بدء المطابقة'))),
+            if (_busy) const ColoredBox(
+              color: Color(0x44000000),
+              child: Center(child: CircularProgressIndicator()),
+            ),
           ],
         ),
-        if (_busy) const ColoredBox(color: Color(0x44000000), child: Center(child: CircularProgressIndicator())),
-      ],
-    ),
-  );
+      );
 }
 
 class ResultsScreen extends StatefulWidget {
-  const ResultsScreen({super.key, required this.title, required this.firstName, required this.secondName, required this.result});
-  final String title;
+  const ResultsScreen({
+    super.key,
+    required this.mode,
+    required this.firstName,
+    required this.secondName,
+    required this.result,
+    this.savedName,
+  });
+  final ReconciliationMode mode;
   final String firstName;
   final String secondName;
   final ReconciliationResult result;
+  final String? savedName;
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
 }
 
 class _ResultsScreenState extends State<ResultsScreen> {
   final _export = ExportService();
+  final _archive = ArchiveService();
   bool _busy = false;
+  String? _savedName;
+  bool _showMatched = true;
+  bool _showUnmatched = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _savedName = widget.savedName;
+  }
+
+  Future<String?> _askName() async {
+    final controller = TextEditingController(
+      text: _savedName ?? 'مطابقة ${DateFormat('yyyy-MM-dd').format(DateTime.now())}',
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('اسم النتيجة'),
+        content: TextField(controller: controller),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('اعتماد')),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result == null || result.isEmpty ? null : result;
+  }
+
+  Future<void> _save() async {
+    final name = await _askName();
+    if (name == null) return;
+    await _archive.save(
+      ArchivedReconciliation(
+        id: '${DateTime.now().microsecondsSinceEpoch}',
+        name: name,
+        type: widget.mode.name,
+        createdAt: DateTime.now(),
+        firstName: widget.firstName,
+        secondName: widget.secondName,
+        result: widget.result,
+      ),
+    );
+    if (mounted) setState(() => _savedName = name);
+    _message('تم حفظ النتيجة في الأرشيف.');
+  }
 
   Future<void> _doExport(bool pdf) async {
+    final name = _savedName ?? await _askName();
+    if (name == null) return;
     setState(() => _busy = true);
     try {
-      final name = '${widget.title} ${DateFormat('yyyy-MM-dd HH-mm').format(DateTime.now())}';
       if (pdf) {
-        await _export.exportPdf(name: name, result: widget.result);
+        await _export.exportPdf(name: name, firstName: widget.firstName, secondName: widget.secondName, result: widget.result);
       } else {
-        await _export.exportExcel(name: name, result: widget.result);
+        await _export.exportExcel(name: name, firstName: widget.firstName, secondName: widget.secondName, result: widget.result);
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذر التصدير: $e')));
+    } catch (error) {
+      _message('تعذر التصدير: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _message(String text) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
   Widget build(BuildContext context) {
-    final rows = <MatchPair>[
+    final all = <MatchPair>[
       ...widget.result.pairs,
-      ...widget.result.unmatchedRight.map((r) => MatchPair(left: r, right: null, status: MatchStatus.unmatched, reason: 'غير موجودة في الطرف الأول', score: 0)),
+      ...widget.result.unmatchedRight.map(
+        (item) => MatchPair(
+          left: item,
+          right: null,
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في الطرف الأول',
+          score: 0,
+        ),
+      ),
     ];
+    final rows = all.where((pair) =>
+      (pair.status == MatchStatus.matched && _showMatched) ||
+      (pair.status != MatchStatus.matched && _showUnmatched)).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('نتيجة المطابقة')),
-      body: Stack(children: [
-        Column(children: [
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(children: [
-                  Text('${widget.firstName} ↔ ${widget.secondName}', textAlign: TextAlign.center),
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Expanded(child: _CountBox(label: 'متطابقة', value: widget.result.matchedCount, color: const Color(0xFFDCF5E8))),
-                    const SizedBox(width: 8),
-                    Expanded(child: _CountBox(label: 'غير متطابقة', value: widget.result.unmatchedCount, color: const Color(0xFFFFE1E1))),
-                  ]),
-                  const SizedBox(height: 10),
-                  Wrap(spacing: 8, children: [
-                    OutlinedButton.icon(onPressed: () => _doExport(false), icon: const Icon(Icons.table_view), label: const Text('Excel')),
-                    OutlinedButton.icon(onPressed: () => _doExport(true), icon: const Icon(Icons.picture_as_pdf), label: const Text('PDF')),
-                  ]),
-                ]),
+      appBar: AppBar(title: Text(_savedName ?? 'نتيجة المطابقة')),
+      body: Stack(
+        children: [
+          Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        Text('${widget.firstName} ↔ ${widget.secondName}', textAlign: TextAlign.center),
+                        const SizedBox(height: 8),
+                        Text('متطابقة: ${widget.result.matchedCount} — غير متطابقة: ${widget.result.unmatchedCount}'),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 8,
+                          children: [
+                            FilterChip(label: const Text('المتطابقة'), selected: _showMatched, onSelected: (v) => setState(() => _showMatched = v)),
+                            FilterChip(label: const Text('غير المتطابقة'), selected: _showUnmatched, onSelected: (v) => setState(() => _showUnmatched = v)),
+                            OutlinedButton.icon(onPressed: _save, icon: const Icon(Icons.archive_outlined), label: const Text('الأرشيف')),
+                            OutlinedButton.icon(onPressed: () => _doExport(false), icon: const Icon(Icons.table_view), label: const Text('Excel')),
+                            OutlinedButton.icon(onPressed: () => _doExport(true), icon: const Icon(Icons.picture_as_pdf), label: const Text('PDF')),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, index) => _ResultCard(pair: rows[index]),
+                ),
+              ),
+            ],
           ),
-          Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(14,0,14,20),
-              itemCount: rows.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (_, i) => _ResultCard(pair: rows[i]),
-            ),
-          ),
-        ]),
-        if (_busy) const ColoredBox(color: Color(0x44000000), child: Center(child: CircularProgressIndicator())),
-      ]),
+          if (_busy) const ColoredBox(color: Color(0x44000000), child: Center(child: CircularProgressIndicator())),
+        ],
+      ),
     );
   }
 }
 
-class _TypeCard extends StatelessWidget {
-  const _TypeCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
-  final IconData icon; final String title; final String subtitle; final VoidCallback onTap;
+class ArchiveHomeScreen extends StatelessWidget {
+  const ArchiveHomeScreen({super.key});
   @override
-  Widget build(BuildContext context) => Card(child: ListTile(contentPadding: const EdgeInsets.all(16), leading: CircleAvatar(child: Icon(icon)), title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Padding(padding: const EdgeInsets.only(top: 6), child: Text(subtitle)), trailing: const Icon(Icons.arrow_back_ios_new), onTap: onTap));
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('أرشيف المطابقات')),
+        body: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            _TypeCard(
+              icon: Icons.account_balance_outlined,
+              title: 'أرشيف مطابقات البنك',
+              subtitle: 'النتائج المحفوظة لمطابقات البنك.',
+              onTap: () => _open(context, ReconciliationMode.bank),
+            ),
+            const SizedBox(height: 14),
+            _TypeCard(
+              icon: Icons.people_alt_outlined,
+              title: 'أرشيف العملاء والموردين',
+              subtitle: 'النتائج المحفوظة لمطابقات العملاء والموردين.',
+              onTap: () => _open(context, ReconciliationMode.parties),
+            ),
+          ],
+        ),
+      );
+
+  void _open(BuildContext context, ReconciliationMode mode) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: ArchiveListScreen(mode: mode),
+        ),
+      ),
+    );
+  }
 }
 
-class _FileCard extends StatelessWidget {
-  const _FileCard({required this.number, required this.label, required this.statement, required this.onTap});
-  final int number; final String label; final ImportedStatement? statement; final VoidCallback onTap;
+class ArchiveListScreen extends StatefulWidget {
+  const ArchiveListScreen({super.key, required this.mode});
+  final ReconciliationMode mode;
   @override
-  Widget build(BuildContext context) => Card(child: ListTile(contentPadding: const EdgeInsets.all(14), leading: CircleAvatar(child: Text('$number')), title: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(statement == null ? 'اضغط لاختيار الملف' : '${statement!.fileName}\n${statement!.records.length} عملية'), isThreeLine: statement != null, trailing: const Icon(Icons.upload_file), onTap: onTap));
+  State<ArchiveListScreen> createState() => _ArchiveListScreenState();
 }
 
-class _CountBox extends StatelessWidget {
-  const _CountBox({required this.label, required this.value, required this.color});
-  final String label; final int value; final Color color;
+class _ArchiveListScreenState extends State<ArchiveListScreen> {
+  final _service = ArchiveService();
+  late Future<List<ArchivedReconciliation>> _items;
   @override
-  Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(14)), child: Column(children: [Text('$value', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)), Text(label)]));
+  void initState() {
+    super.initState();
+    _reload();
+  }
+  void _reload() => _items = _service.load(type: widget.mode.name);
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('النتائج المحفوظة')),
+        body: FutureBuilder<List<ArchivedReconciliation>>(
+          future: _items,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+            final items = snapshot.data ?? const [];
+            if (items.isEmpty) return const Center(child: Text('لا توجد نتائج محفوظة.'));
+            return ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return Card(
+                  child: ListTile(
+                    title: Text(item.name),
+                    subtitle: Text('${DateFormat('yyyy/MM/dd HH:mm').format(item.createdAt)}\nمتطابقة: ${item.result.matchedCount} — غير متطابقة: ${item.result.unmatchedCount}'),
+                    isThreeLine: true,
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        await _service.delete(item.id);
+                        setState(_reload);
+                      },
+                    ),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => Directionality(
+                          textDirection: TextDirection.rtl,
+                          child: ResultsScreen(
+                            mode: widget.mode,
+                            firstName: item.firstName,
+                            secondName: item.secondName,
+                            result: item.result,
+                            savedName: item.name,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      );
 }
 
 class _ResultCard extends StatelessWidget {
@@ -277,18 +587,72 @@ class _ResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final matched = pair.status == MatchStatus.matched;
-    return Card(
-      color: matched ? const Color(0xFFECF8F1) : const Color(0xFFFFEEEE),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(matched ? 'متطابقة' : 'غير متطابقة', style: TextStyle(fontWeight: FontWeight.bold, color: matched ? Colors.green.shade800 : Colors.red.shade800)),
-          Text(pair.reason),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: matched ? const Color(0xFFDCF5E8) : const Color(0xFFFFE1E1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(pair.reason, style: const TextStyle(fontWeight: FontWeight.bold)),
           const Divider(),
-          Text('الطرف الأول: ${DateFormat('yyyy-MM-dd').format(pair.left.date)} | ${pair.left.amount.toStringAsFixed(2)} | ${pair.left.documentNumber ?? '-'}'),
-          if (pair.right != null) Text('الطرف الثاني: ${DateFormat('yyyy-MM-dd').format(pair.right!.date)} | ${pair.right!.amount.toStringAsFixed(2)} | ${pair.right!.documentNumber ?? '-'}'),
-        ]),
+          _record('الطرف الأول', pair.left),
+          if (pair.right != null) ...[
+            const SizedBox(height: 8),
+            _record('الطرف الثاني', pair.right!),
+          ],
+        ],
       ),
     );
   }
+
+  Widget _record(String label, TransactionRecord item) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text('${DateFormat('yyyy/MM/dd').format(item.date)} — ${item.amount.toStringAsFixed(2)} — ${item.sideLabel}'),
+          if ((item.documentNumber ?? '').isNotEmpty) Text('المستند: ${item.documentNumber}'),
+          if (item.description.isNotEmpty) Text(item.description),
+        ],
+      );
+}
+
+class _TypeCard extends StatelessWidget {
+  const _TypeCard({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(16),
+          leading: CircleAvatar(child: Icon(icon)),
+          title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(subtitle),
+          trailing: const Icon(Icons.arrow_back_ios_new),
+          onTap: onTap,
+        ),
+      );
+}
+
+class _FileCard extends StatelessWidget {
+  const _FileCard({required this.number, required this.label, required this.statement, required this.onTap});
+  final int number;
+  final String label;
+  final ImportedStatement? statement;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+        child: ListTile(
+          contentPadding: const EdgeInsets.all(14),
+          leading: CircleAvatar(child: statement == null ? Text('$number') : const Icon(Icons.check)),
+          title: Text(statement?.fileName ?? label),
+          subtitle: Text(statement == null ? 'اضغط لاختيار الملف' : '${statement!.records.length} عملية'),
+          trailing: const Icon(Icons.upload_file),
+          onTap: onTap,
+        ),
+      );
 }
