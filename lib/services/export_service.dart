@@ -13,28 +13,29 @@ import '../models/transaction_record.dart';
 class ExportService {
   Future<File> exportExcel({
     required String name,
+    required String firstName,
+    required String secondName,
     required ReconciliationResult result,
   }) async {
     final book = Excel.createExcel();
     final sheet = book['النتائج'];
-    sheet.appendRow([
-      'الحالة', 'السبب',
-      'تاريخ الطرف الأول', 'رقم مستند الطرف الأول', 'مبلغ الطرف الأول', 'بيان الطرف الأول',
-      'تاريخ الطرف الثاني', 'رقم مستند الطرف الثاني', 'مبلغ الطرف الثاني', 'بيان الطرف الثاني',
-    ].map(TextCellValue.new).toList());
+    book.delete('Sheet1');
+    sheet.appendRow(_headers.map(TextCellValue.new).toList());
     for (final pair in result.pairs) {
-      sheet.appendRow(_row(pair).map(TextCellValue.new).toList());
+      sheet.appendRow(_row(pair.left, pair.right, pair.status, pair.reason)
+          .map(TextCellValue.new)
+          .toList());
     }
     for (final record in result.unmatchedRight) {
-      sheet.appendRow([
-        'غير متطابقة', 'غير موجودة في الطرف الأول', '', '', '', '',
-        _date(record.date), record.documentNumber ?? '',
-        record.amount.toStringAsFixed(2), record.description,
-      ].map(TextCellValue.new).toList());
+      sheet.appendRow(_row(null, record, MatchStatus.unmatched, 'غير موجودة في الطرف الأول')
+          .map(TextCellValue.new)
+          .toList());
     }
 
     final summary = book['الملخص'];
-    summary.appendRow(['النتيجة', 'العدد'].map(TextCellValue.new).toList());
+    summary.appendRow(['اسم المطابقة', name].map(TextCellValue.new).toList());
+    summary.appendRow(['الطرف الأول', firstName].map(TextCellValue.new).toList());
+    summary.appendRow(['الطرف الثاني', secondName].map(TextCellValue.new).toList());
     summary.appendRow(['متطابقة', '${result.matchedCount}'].map(TextCellValue.new).toList());
     summary.appendRow(['غير متطابقة', '${result.unmatchedCount}'].map(TextCellValue.new).toList());
 
@@ -48,49 +49,33 @@ class ExportService {
 
   Future<File> exportPdf({
     required String name,
+    required String firstName,
+    required String secondName,
     required ReconciliationResult result,
   }) async {
-    final arabicFont = await _loadArabicFont();
-    final document = pw.Document(
-      theme: pw.ThemeData.withFont(base: arabicFont, bold: arabicFont),
-    );
+    final font = await _loadArabicFont();
+    final document = pw.Document(theme: pw.ThemeData.withFont(base: font, bold: font));
     final rows = <List<String>>[
-      [
-        'الحالة', 'السبب',
-        'تاريخ 1', 'مستند 1', 'مبلغ 1', 'بيان 1',
-        'تاريخ 2', 'مستند 2', 'مبلغ 2', 'بيان 2',
-      ],
-      ...result.pairs.map(_row),
-      ...result.unmatchedRight.map((record) => [
-            'غير متطابقة', 'غير موجودة في الطرف الأول', '', '', '', '',
-            _date(record.date), record.documentNumber ?? '',
-            record.amount.toStringAsFixed(2), record.description,
-          ]),
+      _headers,
+      ...result.pairs.map((pair) => _row(pair.left, pair.right, pair.status, pair.reason)),
+      ...result.unmatchedRight.map(
+        (record) => _row(null, record, MatchStatus.unmatched, 'غير موجودة في الطرف الأول'),
+      ),
     ];
-
     document.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
+        pageFormat: PdfPageFormat.a3.landscape,
         margin: const pw.EdgeInsets.all(18),
         textDirection: pw.TextDirection.rtl,
         build: (_) => [
-          pw.Text(
-            name,
-            style: pw.TextStyle(fontSize: 15, fontWeight: pw.FontWeight.bold),
-          ),
-          pw.SizedBox(height: 6),
-          pw.Text(
-            'متطابقة: ${result.matchedCount}   |   غير متطابقة: ${result.unmatchedCount}',
-            style: const pw.TextStyle(fontSize: 10),
-          ),
+          pw.Text(name, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.Text('$firstName  ↔  $secondName'),
+          pw.Text('متطابقة: ${result.matchedCount}   |   غير متطابقة: ${result.unmatchedCount}'),
           pw.SizedBox(height: 10),
           pw.TableHelper.fromTextArray(
             data: rows,
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 7,
-            ),
-            cellStyle: const pw.TextStyle(fontSize: 6.5),
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7),
+            cellStyle: const pw.TextStyle(fontSize: 6.3),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
             border: pw.TableBorder.all(color: PdfColors.grey600, width: 0.4),
             cellAlignment: pw.Alignment.centerRight,
@@ -100,12 +85,37 @@ class ExportService {
         ],
       ),
     );
-
     final file = File('${(await getTemporaryDirectory()).path}/${_safe(name)}.pdf');
     await file.writeAsBytes(await document.save(), flush: true);
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
     return file;
   }
+
+  static const _headers = [
+    'الحالة','السبب',
+    'تاريخ الطرف الأول','رقم مستند الطرف الأول','جهة الطرف الأول','مبلغ الطرف الأول','بيان الطرف الأول',
+    'تاريخ الطرف الثاني','رقم مستند الطرف الثاني','جهة الطرف الثاني','مبلغ الطرف الثاني','بيان الطرف الثاني',
+  ];
+
+  List<String> _row(
+    TransactionRecord? left,
+    TransactionRecord? right,
+    MatchStatus status,
+    String reason,
+  ) => [
+        status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
+        reason,
+        left == null ? '' : _date(left.date),
+        left?.documentNumber ?? '',
+        left?.sideLabel ?? '',
+        left?.amount.toStringAsFixed(2) ?? '',
+        left?.description ?? '',
+        right == null ? '' : _date(right.date),
+        right?.documentNumber ?? '',
+        right?.sideLabel ?? '',
+        right?.amount.toStringAsFixed(2) ?? '',
+        right?.description ?? '',
+      ];
 
   Future<pw.Font> _loadArabicFont() async {
     const candidates = [
@@ -113,37 +123,20 @@ class ExportService {
       '/system/fonts/NotoSansArabic-Regular.ttf',
       '/system/fonts/NotoSansArabic.ttf',
       '/system/fonts/DroidSansFallback.ttf',
-      '/system/fonts/NotoSans-Regular.ttf',
     ];
     for (final path in candidates) {
       final file = File(path);
       if (!await file.exists()) continue;
       try {
         final bytes = await file.readAsBytes();
-        if (bytes.isNotEmpty) {
-          return pw.Font.ttf(ByteData.sublistView(Uint8List.fromList(bytes)));
-        }
-      } catch (_) {
-        // نجرب الخط التالي المتوفر على الجهاز.
-      }
+        if (bytes.isNotEmpty) return pw.Font.ttf(ByteData.sublistView(Uint8List.fromList(bytes)));
+      } catch (_) {}
     }
-    return pw.Font.helvetica();
+    throw const FileSystemException(
+      'لا يوجد خط عربي مناسب على هذا الجهاز. استخدم تصدير Excel بدل PDF.',
+    );
   }
 
-  List<String> _row(MatchPair pair) => [
-        pair.status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
-        pair.reason,
-        _date(pair.left.date),
-        pair.left.documentNumber ?? '',
-        pair.left.amount.toStringAsFixed(2),
-        pair.left.description,
-        pair.right == null ? '' : _date(pair.right!.date),
-        pair.right?.documentNumber ?? '',
-        pair.right?.amount.toStringAsFixed(2) ?? '',
-        pair.right?.description ?? '',
-      ];
-
   String _date(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
-
   String _safe(String value) => value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 }
