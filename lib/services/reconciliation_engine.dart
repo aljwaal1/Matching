@@ -45,7 +45,10 @@ class ReconciliationEngine {
         documentIndex.putIfAbsent(document, () => []).add(item);
       }
       amountIndex
-          .putIfAbsent(_bucket(item.record.amount, settings.amountTolerance), () => [])
+          .putIfAbsent(
+            _bucket(item.record.amount, settings.amountTolerance),
+            () => [],
+          )
           .add(item);
     }
 
@@ -54,13 +57,13 @@ class ReconciliationEngine {
     for (final item in left) {
       final decision = _selectBest(
         item,
-        indexed,
         documentIndex,
         amountIndex,
         used,
         settings,
       );
-      if (decision.index != null && decision.pair.status == MatchStatus.matched) {
+      if (decision.index != null &&
+          decision.pair.status == MatchStatus.matched) {
         used.add(decision.index!);
       }
       pairs.add(decision.pair);
@@ -69,34 +72,44 @@ class ReconciliationEngine {
     return ReconciliationResult(
       pairs: List.unmodifiable(pairs),
       unmatchedRight: List.unmodifiable(
-        indexed.where((item) => !used.contains(item.index)).map((item) => item.record),
+        indexed
+            .where((item) => !used.contains(item.index))
+            .map((item) => item.record),
       ),
     );
   }
 
   _Decision _selectBest(
     TransactionRecord left,
-    List<_IndexedRecord> allRight,
     Map<String, List<_IndexedRecord>> documentIndex,
     Map<int, List<_IndexedRecord>> amountIndex,
     Set<int> used,
     ReconciliationSettings settings,
   ) {
-    final document = left.normalizedDocumentNumber;
     final candidates = <_IndexedRecord>[];
+    final seen = <int>{};
+    final document = left.normalizedDocumentNumber;
 
     if (document.isNotEmpty) {
-      candidates.addAll(
-        (documentIndex[document] ?? const <_IndexedRecord>[])
-            .where((item) => !used.contains(item.index)),
-      );
-    } else {
+      for (final item
+          in documentIndex[document] ?? const <_IndexedRecord>[]) {
+        if (!used.contains(item.index) && seen.add(item.index)) {
+          candidates.add(item);
+        }
+      }
+    }
+
+    // عند غياب رقم المستند في أحد الطرفين، أو عدم وجود الرقم نفسه،
+    // نبحث في المبلغ والتاريخ مع إبقاء اختلاف أرقام المستندات سبباً للرفض.
+    if (candidates.isEmpty) {
       final bucket = _bucket(left.amount, settings.amountTolerance);
       for (var current = bucket - 1; current <= bucket + 1; current++) {
-        candidates.addAll(
-          (amountIndex[current] ?? const <_IndexedRecord>[])
-              .where((item) => !used.contains(item.index)),
-        );
+        for (final item
+            in amountIndex[current] ?? const <_IndexedRecord>[]) {
+          if (!used.contains(item.index) && seen.add(item.index)) {
+            candidates.add(item);
+          }
+        }
       }
     }
 
@@ -110,7 +123,8 @@ class ReconciliationEngine {
           bestMatch = scored;
           bestIndex = candidate.index;
         }
-      } else if (bestRejection == null || scored.score > bestRejection.score) {
+      } else if (bestRejection == null ||
+          scored.score > bestRejection.score) {
         bestRejection = scored;
       }
     }
@@ -140,7 +154,8 @@ class ReconciliationEngine {
     }
 
     if (settings.requireOppositeEntrySides) {
-      if (left.side == EntrySide.unknown || right.side == EntrySide.unknown) {
+      if (left.side == EntrySide.unknown ||
+          right.side == EntrySide.unknown) {
         return _no(
           left,
           right,
@@ -165,19 +180,19 @@ class ReconciliationEngine {
 
     final leftDocument = left.normalizedDocumentNumber;
     final rightDocument = right.normalizedDocumentNumber;
-    final bothHaveDocuments = leftDocument.isNotEmpty && rightDocument.isNotEmpty;
+    final bothHaveDocuments =
+        leftDocument.isNotEmpty && rightDocument.isNotEmpty;
     if (bothHaveDocuments && leftDocument != rightDocument) {
       return _no(left, right, 'رقم المستند مختلف', 6);
     }
 
     final dateDifference = left.date.difference(right.date).inDays.abs();
-    if (!bothHaveDocuments &&
-        dateDifference > settings.allowedDateDifferenceDays) {
+    if (dateDifference > settings.allowedDateDifferenceDays) {
       return _no(left, right, 'فرق التاريخ أكبر من المسموح', 5);
     }
 
     final reason = bothHaveDocuments
-        ? 'تطابق رقم المستند والمبلغ${dateDifference == 0 ? '' : ' — فرق التاريخ $dateDifference يوم'}'
+        ? 'تطابق رقم المستند والمبلغ'
         : dateDifference == 0
             ? 'تطابق المبلغ والتاريخ'
             : 'تطابق المبلغ مع فرق تاريخ $dateDifference يوم';
@@ -193,7 +208,8 @@ class ReconciliationEngine {
     );
   }
 
-  int _bucket(double amount, double tolerance) => (amount / tolerance).floor();
+  int _bucket(double amount, double tolerance) =>
+      (amount / tolerance).floor();
 
   MatchPair _no(
     TransactionRecord left,
