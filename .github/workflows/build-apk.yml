@@ -24,6 +24,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Integrate responsive mapping and bank reconciliation
+        run: |
+          python3 .github/scripts/apply-column-screen-and-bank-reconciliation.py
+          if ! git diff --quiet -- lib/main.dart; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add lib/main.dart
+            git commit -m "feat: integrate responsive mapping and bank reconciliation"
+            git push
+          fi
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
