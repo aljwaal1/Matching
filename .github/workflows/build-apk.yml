@@ -24,6 +24,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Apply vivid UI and dual mapping
+        run: |
+          python3 .github/scripts/apply-vivid-ui-and-dual-mapping.py
+          if ! git diff --quiet -- lib/main.dart; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add lib/main.dart
+            git commit -m "feat: review columns for both statements with vivid UI"
+            git push
+          fi
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
