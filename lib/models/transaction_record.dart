@@ -1,4 +1,4 @@
-enum MatchStatus { matched, probable, unmatched }
+enum MatchStatus { matched, unmatched }
 
 enum EntrySide { debit, credit, unknown }
 
@@ -62,8 +62,6 @@ class ReconciliationResult {
 
   int get matchedCount =>
       pairs.where((pair) => pair.status == MatchStatus.matched).length;
-  int get probableCount =>
-      pairs.where((pair) => pair.status == MatchStatus.probable).length;
   int get unmatchedCount =>
       pairs.where((pair) => pair.status == MatchStatus.unmatched).length +
       unmatchedRight.length;
