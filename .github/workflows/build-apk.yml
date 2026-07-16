@@ -36,6 +36,18 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Download Arabic PDF fonts
+        run: |
+          mkdir -p assets/fonts
+          curl --fail --location --retry 3 \
+            'https://notofonts.github.io/arabic/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf' \
+            --output assets/fonts/NotoNaskhArabic-Regular.ttf
+          curl --fail --location --retry 3 \
+            'https://notofonts.github.io/arabic/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Bold.ttf' \
+            --output assets/fonts/NotoNaskhArabic-Bold.ttf
+          test -s assets/fonts/NotoNaskhArabic-Regular.ttf
+          test -s assets/fonts/NotoNaskhArabic-Bold.ttf
+
       - name: Generate Android platform
         run: flutter create --platforms=android --org com.explapp --project-name matching .
 
