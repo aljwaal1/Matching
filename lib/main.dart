@@ -27,36 +27,54 @@ class MatchingApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF175C52),
-            primary: const Color(0xFF175C52),
-            secondary: const Color(0xFFD79A24),
+            seedColor: const Color(0xFF6D4CFF),
+            primary: const Color(0xFF6D4CFF),
+            secondary: const Color(0xFFFF7A00),
+            tertiary: const Color(0xFF00C2A8),
             surface: Colors.white,
           ),
-          scaffoldBackgroundColor: const Color(0xFFF1F6F5),
+          scaffoldBackgroundColor: const Color(0xFFF7F4FF),
           cardTheme: CardThemeData(
-            elevation: 0,
+            elevation: 3,
+            shadowColor: const Color(0x336D4CFF),
             margin: EdgeInsets.zero,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.all(Radius.circular(22)),
-              side: BorderSide(color: Color(0xFFE0EBE8)),
+              borderRadius: BorderRadius.all(Radius.circular(24)),
+              side: BorderSide(color: Color(0xFFD9D0FF), width: 1.2),
             ),
           ),
           appBarTheme: const AppBarTheme(
             centerTitle: true,
-            backgroundColor: Color(0xFFF1F6F5),
-            foregroundColor: Color(0xFF163D37),
+            backgroundColor: Color(0xFF6D4CFF),
+            foregroundColor: Colors.white,
             elevation: 0,
+          ),
+          filledButtonTheme: FilledButtonThemeData(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFFF7A00),
+              foregroundColor: Colors.white,
+              minimumSize: const Size.fromHeight(52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
           ),
           inputDecorationTheme: InputDecorationTheme(
             filled: true,
             fillColor: Colors.white,
+            labelStyle: const TextStyle(color: Color(0xFF5137CC)),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFFD8E5E2)),
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFFCFC4FF)),
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: Color(0xFFD8E5E2)),
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFFCFC4FF)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFF00B8D9), width: 2),
             ),
           ),
         ),
@@ -187,7 +205,11 @@ class _SetupScreenState extends State<SetupScreen> {
         fileName: file.name,
         bytes: bytes,
       );
-      var mapping = prepared.suggestedMapping ?? await _askMapping(prepared);
+      var mapping = await _askMapping(
+        prepared,
+        initial: prepared.suggestedMapping,
+        statementLabel: first ? 'الكشف الأول' : 'الكشف الثاني',
+      );
       if (mapping == null) return;
 
       final usesDirectAmount = mapping.amount != null &&
@@ -340,14 +362,19 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  Future<ColumnMapping?> _askMapping(PreparedStatement prepared) async {
-    int? date;
-    int? document;
-    int? amount;
-    int? debit;
-    int? credit;
-    int? description;
-    var directAmountRule = DirectAmountRule.unknown;
+  Future<ColumnMapping?> _askMapping(
+    PreparedStatement prepared, {
+    ColumnMapping? initial,
+    required String statementLabel,
+  }) async {
+    int? date = initial?.date;
+    int? document = initial?.document;
+    int? amount = initial?.amount;
+    int? debit = initial?.debit;
+    int? credit = initial?.credit;
+    int? description = initial?.description;
+    var directAmountRule =
+        initial?.directAmountRule ?? DirectAmountRule.unknown;
 
     return showDialog<ColumnMapping>(
       context: context,
@@ -383,10 +410,33 @@ class _SetupScreenState extends State<SetupScreen> {
               );
 
           return AlertDialog(
-            title: const Text('تحديد الأعمدة يدويًا'),
+            title: Row(
+              children: [
+                const CircleAvatar(
+                  backgroundColor: Color(0xFFE8E2FF),
+                  child: Icon(Icons.view_column_rounded, color: Color(0xFF6D4CFF)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text('مراجعة أعمدة $statementLabel')),
+              ],
+            ),
             content: SingleChildScrollView(
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF0E3),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFFFFB36B)),
+                    ),
+                    child: const Text(
+                      'راجع الاختيارات المقترحة وعدّل أي عمود قبل اعتماد الكشف.',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   field(
                     'عمود التاريخ',
                     date,
@@ -465,7 +515,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             directAmountRule: directAmountRule,
                           ),
                         ),
-                child: const Text('اعتماد'),
+                child: const Text('اعتماد أعمدة الكشف'),
               ),
             ],
           );
