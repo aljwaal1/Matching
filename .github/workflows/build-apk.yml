@@ -24,17 +24,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply direct amount side support
-        run: |
-          python3 .github/scripts/apply-direct-amount-side.py
-          if ! git diff --quiet -- lib/main.dart lib/services/file_import_service.dart; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add lib/main.dart lib/services/file_import_service.dart
-            git commit -m "feat: let user assign debit or credit to direct amount columns"
-            git push
-          fi
-
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
