@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -305,12 +304,10 @@ class _SetupScreenState extends State<SetupScreen> {
         allowedDateDifferenceDays: _days,
         mode: widget.mode,
       );
-      final result = await Isolate.run(
-        () => const ReconciliationEngine().reconcile(
-          left: left,
-          right: right,
-          settings: settings,
-        ),
+      final result = const ReconciliationEngine().reconcile(
+        left: left,
+        right: right,
+        settings: settings,
       );
       if (!mounted) return;
       await Navigator.push(
