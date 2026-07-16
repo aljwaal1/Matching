@@ -23,6 +23,7 @@ class ColumnMapping {
     this.debit,
     this.credit,
     this.description,
+    this.directAmountSide = EntrySide.unknown,
   });
 
   final int date;
@@ -31,6 +32,7 @@ class ColumnMapping {
   final int? debit;
   final int? credit;
   final int? description;
+  final EntrySide directAmountSide;
 
   bool get hasAmountSource =>
       amount != null || debit != null || credit != null;
@@ -254,6 +256,7 @@ class FileImportService {
 
         if (direct != null && direct != 0) {
           movementAmount = direct.abs();
+          side = mapping.directAmountSide;
         } else if (debit != 0 && credit == 0) {
           movementAmount = debit.abs();
           side = EntrySide.debit;

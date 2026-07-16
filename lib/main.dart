@@ -154,17 +154,31 @@ class _SetupScreenState extends State<SetupScreen> {
         );
       }
 
-      ImportedStatement imported;
-      try {
-        imported = _importer.importBytes(
-          fileName: file.name,
-          bytes: bytes,
+      final prepared = _importer.prepareBytes(
+        fileName: file.name,
+        bytes: bytes,
+      );
+      var mapping = prepared.suggestedMapping ?? await _askMapping(prepared);
+      if (mapping == null) return;
+
+      final usesDirectAmount = mapping.amount != null &&
+          mapping.debit == null &&
+          mapping.credit == null;
+      if (widget.mode == ReconciliationMode.parties && usesDirectAmount) {
+        final selectedSide = await _askDirectAmountSide(file.name);
+        if (selectedSide == null) return;
+        mapping = ColumnMapping(
+          date: mapping.date,
+          document: mapping.document,
+          amount: mapping.amount,
+          debit: mapping.debit,
+          credit: mapping.credit,
+          description: mapping.description,
+          directAmountSide: selectedSide,
         );
-      } on ColumnDetectionException catch (error) {
-        final mapping = await _askMapping(error.prepared);
-        if (mapping == null) return;
-        imported = _importer.buildStatement(error.prepared, mapping);
       }
+
+      final imported = _importer.buildStatement(prepared, mapping);
 
       if (!mounted) return;
       setState(() => first ? _first = imported : _second = imported);
@@ -181,6 +195,33 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
+  Future<EntrySide?> _askDirectAmountSide(String fileName) =>
+      showDialog<EntrySide>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('تحديد جهة عمود المبلغ'),
+          content: Text(
+            'لم يحتوي ملف «$fileName» على عمودين منفصلين للمدين والدائن. '
+            'حدد جهة عمود المبلغ في هذا الكشف.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            OutlinedButton(
+              onPressed: () => Navigator.pop(context, EntrySide.debit),
+              child: const Text('المبلغ مدين'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, EntrySide.credit),
+              child: const Text('المبلغ دائن'),
+            ),
+          ],
+        ),
+      );
+
   Future<ColumnMapping?> _askMapping(PreparedStatement prepared) async {
     int? date;
     int? document;
@@ -188,6 +229,7 @@ class _SetupScreenState extends State<SetupScreen> {
     int? debit;
     int? credit;
     int? description;
+    var directAmountSide = EntrySide.unknown;
 
     return showDialog<ColumnMapping>(
       context: context,
@@ -243,6 +285,29 @@ class _SetupScreenState extends State<SetupScreen> {
                     amount,
                     (value) => setLocal(() => amount = value),
                   ),
+                  DropdownButtonFormField<EntrySide>(
+                    initialValue: directAmountSide,
+                    decoration: const InputDecoration(
+                      labelText: 'جهة عمود المبلغ المباشر',
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: EntrySide.unknown,
+                        child: Text('غير محدد'),
+                      ),
+                      DropdownMenuItem(
+                        value: EntrySide.debit,
+                        child: Text('مدين'),
+                      ),
+                      DropdownMenuItem(
+                        value: EntrySide.credit,
+                        child: Text('دائن'),
+                      ),
+                    ],
+                    onChanged: (value) => setLocal(
+                      () => directAmountSide = value ?? EntrySide.unknown,
+                    ),
+                  ),
                   field(
                     'المدين',
                     debit,
@@ -279,6 +344,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             debit: debit,
                             credit: credit,
                             description: description,
+                            directAmountSide: directAmountSide,
                           ),
                         ),
                 child: const Text('اعتماد'),
