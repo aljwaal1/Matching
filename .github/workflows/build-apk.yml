@@ -51,8 +51,17 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test
-        run: flutter test
+      - name: Test reconciliation engine
+        run: flutter test test/reconciliation_engine_test.dart --reporter expanded
+
+      - name: Test file import
+        run: flutter test test/file_import_service_test.dart --reporter expanded
+
+      - name: Test archive
+        run: flutter test test/archive_service_test.dart --reporter expanded
+
+      - name: Test performance
+        run: flutter test test/reconciliation_performance_test.dart --reporter expanded
 
       - name: Build release APK
         run: flutter build apk --release --no-tree-shake-icons
