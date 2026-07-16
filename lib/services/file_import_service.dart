@@ -15,6 +15,14 @@ class SkippedRow {
   final String reason;
 }
 
+enum DirectAmountRule {
+  unknown,
+  allDebit,
+  allCredit,
+  positiveDebitNegativeCredit,
+  positiveCreditNegativeDebit,
+}
+
 class ColumnMapping {
   const ColumnMapping({
     required this.date,
@@ -23,7 +31,7 @@ class ColumnMapping {
     this.debit,
     this.credit,
     this.description,
-    this.directAmountSide = EntrySide.unknown,
+    this.directAmountRule = DirectAmountRule.unknown,
   });
 
   final int date;
@@ -32,7 +40,7 @@ class ColumnMapping {
   final int? debit;
   final int? credit;
   final int? description;
-  final EntrySide directAmountSide;
+  final DirectAmountRule directAmountRule;
 
   bool get hasAmountSource =>
       amount != null || debit != null || credit != null;
@@ -256,7 +264,15 @@ class FileImportService {
 
         if (direct != null && direct != 0) {
           movementAmount = direct.abs();
-          side = mapping.directAmountSide;
+          side = switch (mapping.directAmountRule) {
+            DirectAmountRule.allDebit => EntrySide.debit,
+            DirectAmountRule.allCredit => EntrySide.credit,
+            DirectAmountRule.positiveDebitNegativeCredit =>
+              direct > 0 ? EntrySide.debit : EntrySide.credit,
+            DirectAmountRule.positiveCreditNegativeDebit =>
+              direct > 0 ? EntrySide.credit : EntrySide.debit,
+            DirectAmountRule.unknown => EntrySide.unknown,
+          };
         } else if (debit != 0 && credit == 0) {
           movementAmount = debit.abs();
           side = EntrySide.debit;

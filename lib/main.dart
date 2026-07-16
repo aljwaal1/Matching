@@ -27,9 +27,38 @@ class MatchingApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF176B5B),
+            seedColor: const Color(0xFF175C52),
+            primary: const Color(0xFF175C52),
+            secondary: const Color(0xFFD79A24),
+            surface: Colors.white,
           ),
-          scaffoldBackgroundColor: const Color(0xFFF5F8F7),
+          scaffoldBackgroundColor: const Color(0xFFF1F6F5),
+          cardTheme: CardThemeData(
+            elevation: 0,
+            margin: EdgeInsets.zero,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(22)),
+              side: BorderSide(color: Color(0xFFE0EBE8)),
+            ),
+          ),
+          appBarTheme: const AppBarTheme(
+            centerTitle: true,
+            backgroundColor: Color(0xFFF1F6F5),
+            foregroundColor: Color(0xFF163D37),
+            elevation: 0,
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFFD8E5E2)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: const BorderSide(color: Color(0xFFD8E5E2)),
+            ),
+          ),
         ),
         home: const Directionality(
           textDirection: TextDirection.rtl,
@@ -165,7 +194,7 @@ class _SetupScreenState extends State<SetupScreen> {
           mapping.debit == null &&
           mapping.credit == null;
       if (widget.mode == ReconciliationMode.parties && usesDirectAmount) {
-        final selectedSide = await _askDirectAmountSide(file.name);
+        final selectedSide = await _askDirectAmountRule(file.name, prepared, mapping);
         if (selectedSide == null) return;
         mapping = ColumnMapping(
           date: mapping.date,
@@ -174,7 +203,7 @@ class _SetupScreenState extends State<SetupScreen> {
           debit: mapping.debit,
           credit: mapping.credit,
           description: mapping.description,
-          directAmountSide: selectedSide,
+          directAmountRule: selectedSide,
         );
       }
 
@@ -195,32 +224,121 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  Future<EntrySide?> _askDirectAmountSide(String fileName) =>
-      showDialog<EntrySide>(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('تحديد جهة عمود المبلغ'),
-          content: Text(
-            'لم يحتوي ملف «$fileName» على عمودين منفصلين للمدين والدائن. '
-            'حدد جهة عمود المبلغ في هذا الكشف.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('إلغاء'),
+  Future<DirectAmountRule?> _askDirectAmountRule(
+    String fileName,
+    PreparedStatement prepared,
+    ColumnMapping mapping,
+  ) {
+    final values = prepared.rows
+        .map((row) => mapping.amount == null || mapping.amount! >= row.length
+            ? null
+            : row[mapping.amount!])
+        .where((value) => value != null && value.toString().trim().isNotEmpty)
+        .take(5)
+        .toList(growable: false);
+    final numeric = values
+        .map((value) => double.tryParse(
+              value.toString().replaceAll(',', '').replaceAll('(', '-').replaceAll(')', ''),
+            ))
+        .whereType<double>()
+        .toList(growable: false);
+    final hasPositive = numeric.any((value) => value > 0);
+    final hasNegative = numeric.any((value) => value < 0);
+
+    return showDialog<DirectAmountRule>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
+          children: const [
+            CircleAvatar(
+              backgroundColor: Color(0xFFE0F2EE),
+              child: Icon(Icons.rule_folder_outlined, color: Color(0xFF175C52)),
             ),
-            OutlinedButton(
-              onPressed: () => Navigator.pop(context, EntrySide.debit),
-              child: const Text('المبلغ مدين'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, EntrySide.credit),
-              child: const Text('المبلغ دائن'),
-            ),
+            SizedBox(width: 12),
+            Expanded(child: Text('تأكيد جهة المبالغ')),
           ],
         ),
-      );
+        content: SizedBox(
+          width: 440,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'ملف «$fileName» يحتوي عمود مبلغ واحد. راجع أول القيم ثم اختر القاعدة المحاسبية الصحيحة.',
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F8F7),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('معاينة أول القيم', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ...values.asMap().entries.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Text('${entry.key + 1}. ${entry.value}'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (hasPositive && hasNegative) ...[
+                  _RuleChoice(
+                    icon: Icons.north_east,
+                    title: 'الموجب مدين — السالب دائن',
+                    subtitle: 'تتحول القيمة إلى مبلغ موجب وتحفظ جهة كل صف حسب الإشارة.',
+                    onTap: () => Navigator.pop(
+                      context,
+                      DirectAmountRule.positiveDebitNegativeCredit,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _RuleChoice(
+                    icon: Icons.south_west,
+                    title: 'الموجب دائن — السالب مدين',
+                    subtitle: 'استخدم هذا الخيار إذا كان نظام الكشف يعكس دلالة الإشارة.',
+                    onTap: () => Navigator.pop(
+                      context,
+                      DirectAmountRule.positiveCreditNegativeDebit,
+                    ),
+                  ),
+                ] else ...[
+                  _RuleChoice(
+                    icon: Icons.trending_up,
+                    title: 'كل المبالغ مدين',
+                    subtitle: 'استخدمه عندما يمثل هذا العمود حركات مدينة فقط.',
+                    onTap: () => Navigator.pop(context, DirectAmountRule.allDebit),
+                  ),
+                  const SizedBox(height: 10),
+                  _RuleChoice(
+                    icon: Icons.trending_down,
+                    title: 'كل المبالغ دائن',
+                    subtitle: 'استخدمه عندما يمثل هذا العمود حركات دائنة فقط.',
+                    onTap: () => Navigator.pop(context, DirectAmountRule.allCredit),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<ColumnMapping?> _askMapping(PreparedStatement prepared) async {
     int? date;
@@ -229,7 +347,7 @@ class _SetupScreenState extends State<SetupScreen> {
     int? debit;
     int? credit;
     int? description;
-    var directAmountSide = EntrySide.unknown;
+    var directAmountRule = DirectAmountRule.unknown;
 
     return showDialog<ColumnMapping>(
       context: context,
@@ -285,27 +403,27 @@ class _SetupScreenState extends State<SetupScreen> {
                     amount,
                     (value) => setLocal(() => amount = value),
                   ),
-                  DropdownButtonFormField<EntrySide>(
-                    initialValue: directAmountSide,
+                  DropdownButtonFormField<DirectAmountRule>(
+                    initialValue: directAmountRule,
                     decoration: const InputDecoration(
                       labelText: 'جهة عمود المبلغ المباشر',
                     ),
                     items: const [
                       DropdownMenuItem(
-                        value: EntrySide.unknown,
+                        value: DirectAmountRule.unknown,
                         child: Text('غير محدد'),
                       ),
                       DropdownMenuItem(
-                        value: EntrySide.debit,
+                        value: DirectAmountRule.allDebit,
                         child: Text('مدين'),
                       ),
                       DropdownMenuItem(
-                        value: EntrySide.credit,
+                        value: DirectAmountRule.allCredit,
                         child: Text('دائن'),
                       ),
                     ],
                     onChanged: (value) => setLocal(
-                      () => directAmountSide = value ?? EntrySide.unknown,
+                      () => directAmountRule = value ?? DirectAmountRule.unknown,
                     ),
                   ),
                   field(
@@ -344,7 +462,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             debit: debit,
                             credit: credit,
                             description: description,
-                            directAmountSide: directAmountSide,
+                            directAmountRule: directAmountRule,
                           ),
                         ),
                 child: const Text('اعتماد'),
@@ -919,6 +1037,57 @@ class _ResultCard extends StatelessWidget {
             Text('المستند: ${item.documentNumber}'),
           if (item.description.isNotEmpty) Text(item.description),
         ],
+      );
+}
+
+class _RuleChoice extends StatelessWidget {
+  const _RuleChoice({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xFFFFFFFF),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFDCE8E5)),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: const Color(0xFFFFF2D7),
+                  child: Icon(icon, color: const Color(0xFF9A6500)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 3),
+                      Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_back_ios_new, size: 16),
+              ],
+            ),
+          ),
+        ),
       );
 }
 
