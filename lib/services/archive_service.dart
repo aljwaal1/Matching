@@ -5,7 +5,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transaction_record.dart';
 
 class ArchivedReconciliation {
-  const ArchivedReconciliation({required this.id, required this.name, required this.type, required this.createdAt, required this.firstName, required this.secondName, required this.result});
+  const ArchivedReconciliation({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.createdAt,
+    required this.firstName,
+    required this.secondName,
+    required this.result,
+  });
+
   final String id;
   final String name;
   final String type;
@@ -15,52 +24,111 @@ class ArchivedReconciliation {
   final ReconciliationResult result;
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'name': name, 'type': type, 'createdAt': createdAt.toIso8601String(),
-    'firstName': firstName, 'secondName': secondName,
-    'pairs': result.pairs.map((p) => {'left': _tx(p.left), 'right': p.right == null ? null : _tx(p.right!), 'status': p.status.name, 'reason': p.reason, 'score': p.score}).toList(),
-    'unmatchedRight': result.unmatchedRight.map(_tx).toList(),
-  };
+        'id': id,
+        'name': name,
+        'type': type,
+        'createdAt': createdAt.toIso8601String(),
+        'firstName': firstName,
+        'secondName': secondName,
+        'pairs': result.pairs
+            .map((pair) => {
+                  'left': _tx(pair.left),
+                  'right': pair.right == null ? null : _tx(pair.right!),
+                  'status': pair.status.name,
+                  'reason': pair.reason,
+                  'score': pair.score,
+                })
+            .toList(),
+        'unmatchedRight': result.unmatchedRight.map(_tx).toList(),
+      };
 
-  factory ArchivedReconciliation.fromJson(Map<String, dynamic> j) => ArchivedReconciliation(
-    id: j['id'] as String,
-    name: j['name'] as String,
-    type: j['type'] as String,
-    createdAt: DateTime.parse(j['createdAt'] as String),
-    firstName: j['firstName'] as String,
-    secondName: j['secondName'] as String,
-    result: ReconciliationResult(
-      pairs: (j['pairs'] as List).map((e) { final m = Map<String,dynamic>.from(e as Map); return MatchPair(left: _fromTx(Map<String,dynamic>.from(m['left'] as Map)), right: m['right'] == null ? null : _fromTx(Map<String,dynamic>.from(m['right'] as Map)), status: MatchStatus.values.firstWhere((s) => s.name == m['status']), reason: m['reason'] as String, score: (m['score'] as num).toDouble()); }).toList(),
-      unmatchedRight: (j['unmatchedRight'] as List).map((e) => _fromTx(Map<String,dynamic>.from(e as Map))).toList(),
-    ),
-  );
+  factory ArchivedReconciliation.fromJson(Map<String, dynamic> json) =>
+      ArchivedReconciliation(
+        id: json['id'] as String,
+        name: json['name'] as String,
+        type: json['type'] as String,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        firstName: json['firstName'] as String,
+        secondName: json['secondName'] as String,
+        result: ReconciliationResult(
+          pairs: (json['pairs'] as List).map((value) {
+            final map = Map<String, dynamic>.from(value as Map);
+            return MatchPair(
+              left: _fromTx(Map<String, dynamic>.from(map['left'] as Map)),
+              right: map['right'] == null
+                  ? null
+                  : _fromTx(Map<String, dynamic>.from(map['right'] as Map)),
+              status: MatchStatus.values.byName(map['status'] as String),
+              reason: map['reason'] as String,
+              score: (map['score'] as num).toDouble(),
+            );
+          }).toList(),
+          unmatchedRight: (json['unmatchedRight'] as List)
+              .map((value) => _fromTx(Map<String, dynamic>.from(value as Map)))
+              .toList(),
+        ),
+      );
 
-  static Map<String,dynamic> _tx(TransactionRecord t) => {'id':t.id,'date':t.date.toIso8601String(),'amount':t.amount,'documentNumber':t.documentNumber,'description':t.description,'sourceRow':t.sourceRow};
-  static TransactionRecord _fromTx(Map<String,dynamic> m) => TransactionRecord(id:m['id'] as String,date:DateTime.parse(m['date'] as String),amount:(m['amount'] as num).toDouble(),documentNumber:m['documentNumber'] as String?,description:m['description'] as String? ?? '',sourceRow:m['sourceRow'] as int?);
+  static Map<String, dynamic> _tx(TransactionRecord item) => {
+        'id': item.id,
+        'date': item.date.toIso8601String(),
+        'amount': item.amount,
+        'documentNumber': item.documentNumber,
+        'description': item.description,
+        'sourceRow': item.sourceRow,
+        'side': item.side.name,
+      };
+
+  static TransactionRecord _fromTx(Map<String, dynamic> map) => TransactionRecord(
+        id: map['id'] as String,
+        date: DateTime.parse(map['date'] as String),
+        amount: (map['amount'] as num).toDouble(),
+        documentNumber: map['documentNumber'] as String?,
+        description: map['description'] as String? ?? '',
+        sourceRow: map['sourceRow'] as int?,
+        side: EntrySide.values.byName(map['side'] as String? ?? 'unknown'),
+      );
 }
 
 class ArchiveService {
-  static const _key = 'matching_archive_v1';
+  static const _key = 'matching_archive_v2';
 
-  Future<List<ArchivedReconciliation>> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_key) ?? const [];
-    final items = raw.map((s) => ArchivedReconciliation.fromJson(Map<String,dynamic>.from(jsonDecode(s) as Map))).toList();
-    items.sort((a,b) => b.createdAt.compareTo(a.createdAt));
+  Future<List<ArchivedReconciliation>> load({String? type}) async {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getStringList(_key) ?? const [];
+    final items = <ArchivedReconciliation>[];
+    for (final value in raw) {
+      try {
+        final item = ArchivedReconciliation.fromJson(
+          Map<String, dynamic>.from(jsonDecode(value) as Map),
+        );
+        if (type == null || item.type == type) items.add(item);
+      } catch (_) {
+        // لا نسمح لسجل قديم أو تالف بإيقاف الأرشيف كله.
+      }
+    }
+    items.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return items;
   }
 
   Future<void> save(ArchivedReconciliation item) async {
-    final prefs = await SharedPreferences.getInstance();
+    final preferences = await SharedPreferences.getInstance();
     final items = await load();
-    items.removeWhere((e) => e.id == item.id);
+    items.removeWhere((existing) => existing.id == item.id);
     items.add(item);
-    await prefs.setStringList(_key, items.map((e) => jsonEncode(e.toJson())).toList());
+    await preferences.setStringList(
+      _key,
+      items.map((value) => jsonEncode(value.toJson())).toList(),
+    );
   }
 
   Future<void> delete(String id) async {
-    final prefs = await SharedPreferences.getInstance();
+    final preferences = await SharedPreferences.getInstance();
     final items = await load();
-    items.removeWhere((e) => e.id == id);
-    await prefs.setStringList(_key, items.map((e) => jsonEncode(e.toJson())).toList());
+    items.removeWhere((item) => item.id == id);
+    await preferences.setStringList(
+      _key,
+      items.map((value) => jsonEncode(value.toJson())).toList(),
+    );
   }
 }
