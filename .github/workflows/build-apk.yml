@@ -19,21 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Apply isolate source fix
-        run: |
-          sed -i "/import 'dart:isolate';/d" lib/main.dart
-          python3 -c "from pathlib import Path; p=Path('lib/main.dart'); s=p.read_text(encoding='utf-8'); old='      final result = await Isolate.run(\n        () => const ReconciliationEngine().reconcile(\n          left: left,\n          right: right,\n          settings: settings,\n        ),\n      );'; new='      final result = const ReconciliationEngine().reconcile(\n        left: left,\n        right: right,\n        settings: settings,\n      );'; p.write_text(s.replace(old, new, 1), encoding='utf-8')"
-          if ! git diff --quiet -- lib/main.dart; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add lib/main.dart
-            git commit -m "fix: run reconciliation without Flutter isolate state"
-            git push
-          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -63,17 +52,8 @@ jobs:
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Test reconciliation engine
-        run: flutter test test/reconciliation_engine_test.dart --reporter expanded
-
-      - name: Test file import
-        run: flutter test test/file_import_service_test.dart --reporter expanded
-
-      - name: Test archive
-        run: flutter test test/archive_service_test.dart --reporter expanded
-
-      - name: Test performance
-        run: flutter test test/reconciliation_performance_test.dart --reporter expanded
+      - name: Test
+        run: flutter test --reporter expanded
 
       - name: Build release APK
         run: flutter build apk --release --no-tree-shake-icons
