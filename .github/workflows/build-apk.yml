@@ -23,41 +23,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply one-time isolate fix
+      - name: Apply isolate source fix
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('lib/main.dart')
-          source = path.read_text(encoding='utf-8')
-          source = source.replace("import 'dart:isolate';\n", '')
-
-          old = """      final result = await Isolate.run(
-            () => const ReconciliationEngine().reconcile(
-              left: left,
-              right: right,
-              settings: settings,
-            ),
-          );"""
-          new = """      final result = const ReconciliationEngine().reconcile(
-        left: left,
-        right: right,
-        settings: settings,
-      );"""
-
-          if old in source:
-              source = source.replace(old, new, 1)
-              path.write_text(source, encoding='utf-8')
-              print('Applied isolate fix to lib/main.dart')
-          else:
-              print('Isolate fix already applied')
-          PY
-
+          sed -i "/import 'dart:isolate';/d" lib/main.dart
+          python3 -c "from pathlib import Path; p=Path('lib/main.dart'); s=p.read_text(encoding='utf-8'); old='      final result = await Isolate.run(\n        () => const ReconciliationEngine().reconcile(\n          left: left,\n          right: right,\n          settings: settings,\n        ),\n      );'; new='      final result = const ReconciliationEngine().reconcile(\n        left: left,\n        right: right,\n        settings: settings,\n      );'; p.write_text(s.replace(old, new, 1), encoding='utf-8')"
           if ! git diff --quiet -- lib/main.dart; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add lib/main.dart
-            git commit -m "fix: run reconciliation without unsendable Flutter isolate state"
+            git commit -m "fix: run reconciliation without Flutter isolate state"
             git push
           fi
 
