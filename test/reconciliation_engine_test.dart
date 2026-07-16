@@ -20,84 +20,73 @@ TransactionRecord tx(
 void main() {
   const engine = ReconciliationEngine();
 
-  test('يطابق رقم المستند والمبلغ رغم فرق التاريخ', () {
+  test('يطابق مدين الطرف الأول مع دائن الطرف الثاني', () {
     final result = engine.reconcile(
-      left: [tx('l', '2026-01-01', 100, doc: 'INV-1')],
-      right: [tx('r', '2026-01-03', 100, doc: 'INV1')],
-      settings: const ReconciliationSettings(allowedDateDifferenceDays: 3),
+      left: [tx('l', '2026-01-01', 100, doc: 'INV-1', side: EntrySide.debit)],
+      right: [tx('r', '2026-01-02', 100, doc: 'INV1', side: EntrySide.credit)],
+      settings: const ReconciliationSettings(mode: ReconciliationMode.parties),
     );
     expect(result.matchedCount, 1);
   });
 
-  test('يرفض نفس رقم المستند عند اختلاف المبلغ', () {
+  test('يرفض مدين مقابل مدين ويعرض السبب الحقيقي', () {
     final result = engine.reconcile(
-      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
-      right: [tx('r', '2026-01-01', 120, doc: 'A1')],
-      settings: const ReconciliationSettings(),
+      left: [tx('l', '2026-01-01', 100, doc: 'A1', side: EntrySide.debit)],
+      right: [tx('r', '2026-01-01', 100, doc: 'A1', side: EntrySide.debit)],
+      settings: const ReconciliationSettings(mode: ReconciliationMode.parties),
     );
     expect(result.matchedCount, 0);
+    expect(result.pairs.single.reason, contains('جهة الحركة'));
   });
 
-  test('يطابق بالمبلغ والتاريخ عند غياب المستند', () {
+  test('يرفض الجهة غير المحددة في مطابقة العملاء والموردين', () {
     final result = engine.reconcile(
       left: [tx('l', '2026-01-01', 100)],
-      right: [tx('r', '2026-01-02', 100)],
-      settings: const ReconciliationSettings(allowedDateDifferenceDays: 2),
-    );
-    expect(result.matchedCount, 1);
-  });
-
-  test('لا يستخدم العملية المقابلة مرتين', () {
-    final result = engine.reconcile(
-      left: [
-        tx('l1', '2026-01-01', 100),
-        tx('l2', '2026-01-01', 100),
-      ],
       right: [tx('r', '2026-01-01', 100)],
-      settings: const ReconciliationSettings(),
+      settings: const ReconciliationSettings(mode: ReconciliationMode.parties),
     );
-    expect(result.matchedCount, 1);
-    expect(result.unmatchedCount, 1);
+    expect(result.matchedCount, 0);
+    expect(result.pairs.single.reason, contains('غير محددة'));
   });
 
-  test('لا يطابق العملية نفسها عند رفع الملف ذاته مرتين', () {
-    final record = tx(
-      'same-file.xlsx-2',
-      '2026-01-01',
-      100,
-      doc: 'INV-1',
-      side: EntrySide.debit,
+  test('يسمح بالمبلغ والتاريخ دون جهة في مطابقة البنك', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100)],
+      right: [tx('r', '2026-01-03', 100)],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.bank,
+        allowedDateDifferenceDays: 3,
+      ),
     );
+    expect(result.matchedCount, 1);
+  });
+
+  test('لا يطابق العملية نفسها حتى عند تغيير اسم الملف لأن الهوية من المحتوى', () {
+    final record = tx('fingerprint-2', '2026-01-01', 100, side: EntrySide.debit);
     final result = engine.reconcile(
       left: [record],
       right: [record],
-      settings: const ReconciliationSettings(),
+      settings: const ReconciliationSettings(mode: ReconciliationMode.parties),
     );
     expect(result.matchedCount, 0);
-    expect(result.unmatchedCount, 2);
   });
 
-  test('يرفض مدين مقابل مدين ويقبل مدين مقابل دائن', () {
-    final sameSide = engine.reconcile(
-      left: [
-        tx('left', '2026-01-01', 100, doc: 'INV-1', side: EntrySide.debit),
-      ],
-      right: [
-        tx('right', '2026-01-01', 100, doc: 'INV-1', side: EntrySide.debit),
-      ],
-      settings: const ReconciliationSettings(),
+  test('يرفض اختلاف رقم المستند عند وجوده في الطرفين', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
+      right: [tx('r', '2026-01-01', 100, doc: 'B1')],
+      settings: const ReconciliationSettings(mode: ReconciliationMode.bank),
     );
-    expect(sameSide.matchedCount, 0);
+    expect(result.matchedCount, 0);
+  });
 
-    final oppositeSides = engine.reconcile(
-      left: [
-        tx('left', '2026-01-01', 100, doc: 'INV-1', side: EntrySide.debit),
-      ],
-      right: [
-        tx('right', '2026-01-01', 100, doc: 'INV-1', side: EntrySide.credit),
-      ],
-      settings: const ReconciliationSettings(),
+  test('لا يستخدم العملية المقابلة أكثر من مرة', () {
+    final result = engine.reconcile(
+      left: [tx('l1', '2026-01-01', 100), tx('l2', '2026-01-01', 100)],
+      right: [tx('r', '2026-01-01', 100)],
+      settings: const ReconciliationSettings(mode: ReconciliationMode.bank),
     );
-    expect(oppositeSides.matchedCount, 1);
+    expect(result.matchedCount, 1);
+    expect(result.unmatchedCount, 1);
   });
 }
