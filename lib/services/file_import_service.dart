@@ -14,104 +14,131 @@ class SkippedRow {
   final String reason;
 }
 
+class ColumnMapping {
+  const ColumnMapping({
+    required this.date,
+    this.document,
+    this.amount,
+    this.debit,
+    this.credit,
+    this.description,
+  });
+  final int date;
+  final int? document;
+  final int? amount;
+  final int? debit;
+  final int? credit;
+  final int? description;
+
+  bool get hasAmountSource => amount != null || debit != null || credit != null;
+}
+
+class PreparedStatement {
+  const PreparedStatement({
+    required this.fileName,
+    required this.fingerprint,
+    required this.headers,
+    required this.rows,
+    required this.headerRowNumber,
+    required this.suggestedMapping,
+  });
+  final String fileName;
+  final String fingerprint;
+  final List<String> headers;
+  final List<List<dynamic>> rows;
+  final int headerRowNumber;
+  final ColumnMapping? suggestedMapping;
+}
+
+class ColumnDetectionException implements Exception {
+  const ColumnDetectionException(this.prepared);
+  final PreparedStatement prepared;
+  @override
+  String toString() => 'تعذر تحديد الأعمدة تلقائياً.';
+}
+
 class ImportedStatement {
   const ImportedStatement({
     required this.fileName,
+    required this.fingerprint,
     required this.records,
     required this.skippedRows,
   });
-
   final String fileName;
+  final String fingerprint;
   final List<TransactionRecord> records;
   final List<SkippedRow> skippedRows;
 }
 
 class FileImportService {
-  static const _dateNames = [
-    'التاريخ', 'تاريخ العملية', 'تاريخ القيد', 'date', 'posting date',
-    'transaction date', 'value date',
-  ];
-  static const _docNames = [
-    'رقم المستند', 'رقم السند', 'رقم القيد', 'رقم المرجع', 'المرجع',
-    'document', 'document no', 'doc', 'doc no', 'reference', 'ref', 'voucher',
-  ];
-  static const _amountNames = [
-    'المبلغ', 'قيمة الحركة', 'مبلغ الحركة', 'القيمة', 'صافي المبلغ',
-    'amount', 'transaction amount', 'value', 'net amount',
-  ];
-  static const _debitNames = [
-    'مدين', 'المبلغ المدين', 'مدين مبلغ', 'debit', 'debit amount',
-  ];
-  static const _creditNames = [
-    'دائن', 'المبلغ الدائن', 'دائن مبلغ', 'credit', 'credit amount',
-  ];
-  static const _balanceNames = ['الرصيد', 'balance', 'running balance'];
-  static const _descNames = [
-    'البيان', 'الوصف', 'تفاصيل', 'شرح', 'description', 'details',
-    'narration', 'memo',
-  ];
+  static const _dateNames = ['التاريخ','تاريخ العملية','تاريخ القيد','date','posting date','transaction date','value date'];
+  static const _docNames = ['رقم المستند','رقم السند','رقم القيد','رقم المرجع','المرجع','document','document no','doc','doc no','reference','ref','voucher'];
+  static const _amountNames = ['المبلغ','قيمة الحركة','مبلغ الحركة','القيمة','صافي المبلغ','amount','transaction amount','value','net amount'];
+  static const _debitNames = ['مدين','المبلغ المدين','مدين مبلغ','debit','debit amount'];
+  static const _creditNames = ['دائن','المبلغ الدائن','دائن مبلغ','credit','credit amount'];
+  static const _balanceNames = ['الرصيد','balance','running balance'];
+  static const _descNames = ['البيان','الوصف','تفاصيل','شرح','description','details','narration','memo'];
 
-  ImportedStatement importBytes({
-    required String fileName,
-    required Uint8List bytes,
-  }) {
+  ImportedStatement importBytes({required String fileName, required Uint8List bytes}) {
+    final prepared = prepareBytes(fileName: fileName, bytes: bytes);
+    final mapping = prepared.suggestedMapping;
+    if (mapping == null) throw ColumnDetectionException(prepared);
+    return buildStatement(prepared, mapping);
+  }
+
+  PreparedStatement prepareBytes({required String fileName, required Uint8List bytes}) {
     if (bytes.isEmpty) throw const FormatException('الملف فارغ.');
-    final extension = fileName.contains('.')
-        ? fileName.split('.').last.toLowerCase()
-        : '';
-
-    final table = switch (extension) {
+    final ext = fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '';
+    final table = switch (ext) {
       'xlsx' => _readXlsxDirect(bytes),
-      'csv' || 'txt' || 'tsv' =>
-        _readDelimited(bytes, extension == 'tsv' ? '\t' : null),
+      'csv' || 'txt' || 'tsv' => _readDelimited(bytes, ext == 'tsv' ? '\t' : null),
       'pdf' => _readPdf(bytes),
-      'xls' => throw const FormatException(
-          'صيغة XLS القديمة غير مدعومة. احفظ الملف بصيغة XLSX.',
-        ),
-      _ => throw FormatException('صيغة الملف .$extension غير مدعومة.'),
+      'xls' => throw const FormatException('صيغة XLS القديمة غير مدعومة. احفظ الملف بصيغة XLSX.'),
+      _ => throw FormatException('صيغة الملف .$ext غير مدعومة.'),
     };
-
-    if (table.length < 2) {
-      throw const FormatException('الملف لا يحتوي على صف عناوين وبيانات.');
-    }
+    if (table.length < 2) throw const FormatException('الملف لا يحتوي على صف عناوين وبيانات.');
 
     final headerIndex = _findHeader(table);
     final headers = table[headerIndex].map(_clean).toList(growable: false);
-    final rows = table
-        .skip(headerIndex + 1)
-        .where((row) => row.any((value) => _clean(value).isNotEmpty))
-        .toList(growable: false);
+    final rows = table.skip(headerIndex + 1).where((row) => row.any((v) => _clean(v).isNotEmpty)).toList(growable: false);
+    final date = _find(headers, _dateNames) ?? _guessDate(rows, headers.length);
+    final amount = _find(headers, _amountNames);
+    final debit = _find(headers, _debitNames);
+    final credit = _find(headers, _creditNames);
+    final mapping = date != null && (amount != null || debit != null || credit != null)
+        ? ColumnMapping(
+            date: date,
+            document: _find(headers, _docNames),
+            amount: amount,
+            debit: debit,
+            credit: credit,
+            description: _find(headers, _descNames),
+          )
+        : null;
+    return PreparedStatement(
+      fileName: fileName,
+      fingerprint: _fingerprint(bytes),
+      headers: headers,
+      rows: rows,
+      headerRowNumber: headerIndex + 1,
+      suggestedMapping: mapping,
+    );
+  }
 
-    final dateCol = _find(headers, _dateNames) ?? _guessDate(rows, headers.length);
-    final amountCol = _find(headers, _amountNames);
-    final debitCol = _find(headers, _debitNames);
-    final creditCol = _find(headers, _creditNames);
-    final balanceCol = _find(headers, _balanceNames);
-    final docCol = _find(headers, _docNames);
-    final descCol = _find(headers, _descNames);
-
-    if (dateCol == null ||
-        (amountCol == null && debitCol == null && creditCol == null)) {
-      throw FormatException(
-        'تعذر تحديد عمود التاريخ أو مبلغ الحركة تلقائياً. '
-        'الأعمدة المقروءة: ${headers.join(' | ')}',
-      );
-    }
-
+  ImportedStatement buildStatement(PreparedStatement prepared, ColumnMapping mapping) {
+    if (!mapping.hasAmountSource) throw const FormatException('اختر عمود مبلغ أو مدين أو دائن.');
     final records = <TransactionRecord>[];
     final skipped = <SkippedRow>[];
-
-    for (var index = 0; index < rows.length; index++) {
-      final rowNumber = headerIndex + index + 2;
+    for (var index = 0; index < prepared.rows.length; index++) {
+      final rowNumber = prepared.headerRowNumber + index + 1;
+      final row = prepared.rows[index];
       try {
-        final row = rows[index];
-        final date = _date(_cell(row, dateCol));
-        final direct = _amount(_cell(row, amountCol));
-        final debit = _amount(_cell(row, debitCol)) ?? 0;
-        final credit = _amount(_cell(row, creditCol)) ?? 0;
-
+        final date = _date(_cell(row, mapping.date));
+        final direct = _amount(_cell(row, mapping.amount));
+        final debit = _amount(_cell(row, mapping.debit)) ?? 0;
+        final credit = _amount(_cell(row, mapping.credit)) ?? 0;
         double? amount;
-        EntrySide side = EntrySide.unknown;
+        var side = EntrySide.unknown;
         if (direct != null && direct != 0) {
           amount = direct.abs();
         } else if (debit != 0 && credit == 0) {
@@ -121,31 +148,19 @@ class FileImportService {
           amount = credit.abs();
           side = EntrySide.credit;
         } else if (debit != 0 && credit != 0) {
-          skipped.add(SkippedRow(
-            rowNumber,
-            'الصف يحتوي على مبلغ مدين ودائن معاً ويحتاج مراجعة',
-          ));
+          skipped.add(SkippedRow(rowNumber, 'الصف يحتوي مديناً ودائناً معاً'));
           continue;
         }
-
         if (date == null || amount == null || amount == 0) {
-          final balance = _amount(_cell(row, balanceCol));
-          skipped.add(SkippedRow(
-            rowNumber,
-            date == null
-                ? 'تعذر فهم التاريخ'
-                : 'تعذر فهم المدين أو الدائن'
-                    '${balance == null ? '' : ' (الرصيد $balance ليس مبلغ حركة)'}',
-          ));
+          skipped.add(SkippedRow(rowNumber, date == null ? 'تعذر فهم التاريخ' : 'تعذر فهم المبلغ'));
           continue;
         }
-
         records.add(TransactionRecord(
-          id: '$fileName-$rowNumber',
+          id: '${prepared.fingerprint}-$rowNumber',
           date: date,
           amount: amount,
-          documentNumber: _nullable(_cell(row, docCol)),
-          description: _clean(_cell(row, descCol)),
+          documentNumber: _nullable(_cell(row, mapping.document)),
+          description: _clean(_cell(row, mapping.description)),
           sourceRow: rowNumber,
           side: side,
         ));
@@ -153,15 +168,10 @@ class FileImportService {
         skipped.add(SkippedRow(rowNumber, 'تعذر قراءة الصف: $error'));
       }
     }
-
-    if (records.isEmpty) {
-      throw FormatException(
-        'لم يتم العثور على عمليات صالحة. تم تجاهل ${skipped.length} صف.',
-      );
-    }
-
+    if (records.isEmpty) throw FormatException('لم يتم العثور على عمليات صالحة. تم تجاهل ${skipped.length} صف.');
     return ImportedStatement(
-      fileName: fileName,
+      fileName: prepared.fileName,
+      fingerprint: prepared.fingerprint,
       records: List.unmodifiable(records),
       skippedRows: List.unmodifiable(skipped),
     );
@@ -170,39 +180,22 @@ class FileImportService {
   List<List<dynamic>> _readXlsxDirect(Uint8List bytes) {
     try {
       final archive = ZipDecoder().decodeBytes(bytes, verify: true);
-      final sharedStrings = <String>[];
+      final shared = <String>[];
       final sharedFile = archive.findFile('xl/sharedStrings.xml');
       if (sharedFile != null) {
-        final document = XmlDocument.parse(
-          utf8.decode(_archiveBytes(sharedFile)),
-        );
-        for (final item in document.findAllElements('si')) {
-          sharedStrings.add(
-            item.findAllElements('t').map((element) => element.innerText).join(),
-          );
+        final xml = XmlDocument.parse(utf8.decode(_archiveBytes(sharedFile)));
+        for (final item in xml.findAllElements('si')) {
+          shared.add(item.findAllElements('t').map((e) => e.innerText).join());
         }
       }
-
-      final worksheets = archive.files
-          .where((file) =>
-              file.isFile &&
-              RegExp(r'^xl/worksheets/sheet\d+\.xml$').hasMatch(file.name))
-          .toList(growable: false);
-      if (worksheets.isEmpty) {
-        throw const FormatException(
-          'ملف XLSX لا يحتوي على ورقة بيانات قابلة للقراءة.',
-        );
-      }
-
+      final sheets = archive.files.where((f) => f.isFile && RegExp(r'^xl/worksheets/sheet\d+\.xml$').hasMatch(f.name));
       List<List<dynamic>> best = const [];
-      for (final file in worksheets) {
-        final document = XmlDocument.parse(
-          utf8.decode(_archiveBytes(file)),
-        );
+      for (final file in sheets) {
+        final xml = XmlDocument.parse(utf8.decode(_archiveBytes(file)));
         final rows = <List<dynamic>>[];
-        for (final rowElement in document.findAllElements('row')) {
+        for (final rowElement in xml.findAllElements('row')) {
           final cells = <int, dynamic>{};
-          var maxColumn = -1;
+          var max = -1;
           for (final cell in rowElement.findElements('c')) {
             final column = _columnIndex(cell.getAttribute('r') ?? '');
             if (column < 0) continue;
@@ -214,32 +207,20 @@ class FileImportService {
               final values = cell.findElements('v');
               final raw = values.isEmpty ? '' : values.first.innerText;
               if (type == 's') {
-                final sharedIndex = int.tryParse(raw);
-                value = sharedIndex != null &&
-                        sharedIndex >= 0 &&
-                        sharedIndex < sharedStrings.length
-                    ? sharedStrings[sharedIndex]
-                    : raw;
-              } else if (type == 'b') {
-                value = raw == '1';
+                final i = int.tryParse(raw);
+                value = i != null && i >= 0 && i < shared.length ? shared[i] : raw;
               } else {
                 value = num.tryParse(raw) ?? raw;
               }
             }
             cells[column] = value;
-            if (column > maxColumn) maxColumn = column;
+            if (column > max) max = column;
           }
-          if (maxColumn >= 0) {
-            rows.add(
-              List<dynamic>.generate(maxColumn + 1, (column) => cells[column]),
-            );
-          }
+          if (max >= 0) rows.add(List<dynamic>.generate(max + 1, (i) => cells[i]));
         }
         if (rows.length > best.length) best = rows;
       }
       return best;
-    } on FormatException {
-      rethrow;
     } catch (error) {
       throw FormatException('تعذر فك ملف XLSX: $error');
     }
@@ -248,241 +229,121 @@ class FileImportService {
   List<int> _archiveBytes(ArchiveFile file) {
     final content = file.content;
     if (content is List<int>) return content;
-    throw const FormatException('محتوى ملف XLSX الداخلي غير صالح.');
+    throw const FormatException('محتوى XLSX الداخلي غير صالح.');
   }
 
-  int _columnIndex(String reference) {
-    final letters = RegExp(r'^[A-Za-z]+').stringMatch(reference);
+  int _columnIndex(String ref) {
+    final letters = RegExp(r'^[A-Za-z]+').stringMatch(ref);
     if (letters == null) return -1;
     var result = 0;
-    for (final code in letters.toUpperCase().codeUnits) {
-      result = result * 26 + code - 64;
-    }
+    for (final code in letters.toUpperCase().codeUnits) result = result * 26 + code - 64;
     return result - 1;
   }
 
   List<List<dynamic>> _readDelimited(Uint8List bytes, String? forced) {
-    final text = utf8
-        .decode(bytes, allowMalformed: true)
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n');
+    final text = utf8.decode(bytes, allowMalformed: true).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     final first = text.split('\n').first;
-    final candidates = [',', ';', '\t'];
-    candidates.sort(
-      (a, b) => b.allMatches(first).length.compareTo(a.allMatches(first).length),
-    );
-    return CsvToListConverter(
-      fieldDelimiter: forced ?? candidates.first,
-      eol: '\n',
-      shouldParseNumbers: false,
-    ).convert(text);
+    final candidates = [',',';','\t']..sort((a,b) => b.allMatches(first).length.compareTo(a.allMatches(first).length));
+    return CsvToListConverter(fieldDelimiter: forced ?? candidates.first, eol: '\n', shouldParseNumbers: false).convert(text);
   }
 
   List<List<dynamic>> _readPdf(Uint8List bytes) {
     final document = PdfDocument(inputBytes: bytes);
     try {
       final text = PdfTextExtractor(document).extractText();
-      if (text.trim().isEmpty) {
-        throw const FormatException('ملف PDF لا يحتوي نصاً قابلاً للاستخراج.');
+      if (text.trim().isEmpty) throw const FormatException('PDF لا يحتوي نصاً قابلاً للاستخراج.');
+      final rows = <List<dynamic>>[['Date','Doc No','Description','Debit','Credit','Amount']];
+      final normalized = text.replaceAll('\u00a0',' ').replaceAll('\r','\n');
+      final datePattern = RegExp(r'\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b');
+      final dates = datePattern.allMatches(normalized).toList();
+      final amountPattern = RegExp(r'(?<![A-Za-z])[-(]?[0-9][0-9,]*(?:\.\d+)?\)?');
+      final docPattern = RegExp(r'\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b');
+      for (var i = 0; i < dates.length; i++) {
+        final d = dates[i];
+        final end = i + 1 < dates.length ? dates[i + 1].start : normalized.length;
+        var chunk = normalized.substring(d.end, end).replaceAll(RegExp(r'\s+'),' ').trim();
+        final doc = docPattern.firstMatch(chunk);
+        final docNo = doc?.group(0) ?? '';
+        if (doc != null) chunk = '${chunk.substring(0, doc.start)} ${chunk.substring(doc.end)}'.trim();
+        final amounts = amountPattern.allMatches(chunk).toList();
+        if (amounts.isEmpty) continue;
+        final movement = amounts.first;
+        final description = chunk.substring(0, movement.start).trim();
+        final value = movement.group(0) ?? '';
+        final lower = description.toLowerCase();
+        final creditLike = lower.contains('receipt') || lower.contains('payment') || lower.contains('قبض') || lower.contains('دفعة') || lower.contains('سداد');
+        final debitLike = lower.contains('invoice') || lower.contains('sale') || lower.contains('فاتورة') || lower.contains('مبيعات');
+        rows.add([d.group(0) ?? '', docNo, description, debitLike ? value : '', creditLike ? value : '', (!debitLike && !creditLike) ? value : '']);
       }
-      final parsed = _parseStatementPdf(text);
-      if (parsed.length < 2) {
-        throw const FormatException(
-          'تم فتح PDF، لكن لم يتم العثور على عمليات تبدأ بتاريخ ويتبعها مبلغ حركة.',
-        );
-      }
-      return parsed;
+      if (rows.length < 2) throw const FormatException('تم فتح PDF لكن لم يتم التعرف على عمليات محاسبية.');
+      return rows;
     } finally {
       document.dispose();
     }
   }
 
-  List<List<dynamic>> _parseStatementPdf(String text) {
-    final rows = <List<dynamic>>[
-      ['Date', 'Doc No', 'Description', 'Debit', 'Credit', 'Balance'],
-    ];
-    final normalized = text
-        .replaceAll('\u00a0', ' ')
-        .replaceAll('\r\n', '\n')
-        .replaceAll('\r', '\n');
-    final datePattern = RegExp(
-      r'\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b',
-    );
-    final dates = datePattern.allMatches(normalized).toList(growable: false);
-    final amountPattern = RegExp(r'(?<![A-Za-z])[-(]?[0-9][0-9,]*(?:\.\d+)?\)?');
-    final documentPattern = RegExp(
-      r'\b(?=[A-Za-z0-9_-]*[A-Za-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b',
-    );
-
-    for (var index = 0; index < dates.length; index++) {
-      final dateMatch = dates[index];
-      final end = index + 1 < dates.length
-          ? dates[index + 1].start
-          : normalized.length;
-      var chunk = normalized
-          .substring(dateMatch.end, end)
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
-      if (chunk.isEmpty) continue;
-
-      var documentNumber = '';
-      final documentMatch = documentPattern.firstMatch(chunk);
-      if (documentMatch != null) {
-        documentNumber = documentMatch.group(0) ?? '';
-        chunk = '${chunk.substring(0, documentMatch.start)} '
-            '${chunk.substring(documentMatch.end)}'
-            .trim();
-      }
-
-      final amounts = amountPattern.allMatches(chunk).toList(growable: false);
-      if (amounts.isEmpty) continue;
-      final transactionAmount = amounts.first;
-      final amountText = transactionAmount.group(0) ?? '';
-      final balanceText = amounts.length > 1 ? amounts.last.group(0) ?? '' : '';
-      final description = chunk.substring(0, transactionAmount.start).trim();
-      final side = _sideFromPdfDescription(description);
-
-      rows.add([
-        dateMatch.group(0) ?? '',
-        documentNumber,
-        description,
-        side == EntrySide.debit ? amountText : '',
-        side == EntrySide.credit ? amountText : '',
-        balanceText,
-      ]);
-    }
-    return rows;
-  }
-
-  EntrySide _sideFromPdfDescription(String description) {
-    final value = _norm(description);
-    const creditWords = [
-      'receipt', 'payment received', 'cash receipt', 'collection',
-      'قبض', 'تحصيل', 'سداد', 'دفعة مستلمة',
-    ];
-    const debitWords = [
-      'invoice', 'sales invoice', 'service fee', 'charge',
-      'فاتورة', 'رسوم', 'تحميل',
-    ];
-    if (creditWords.any(value.contains)) return EntrySide.credit;
-    if (debitWords.any(value.contains)) return EntrySide.debit;
-    return EntrySide.unknown;
-  }
-
   int _findHeader(List<List<dynamic>> table) {
-    var best = 0;
-    var bestScore = -1;
-    for (var index = 0; index < table.length && index < 20; index++) {
-      final score = table[index]
-          .map(_clean)
-          .where((header) => _allNames.any((name) => _headerMatches(header, name)))
-          .length;
-      if (score > bestScore) {
-        bestScore = score;
-        best = index;
-      }
+    var best = 0, score = -1;
+    for (var i = 0; i < table.length && i < 20; i++) {
+      final current = table[i].map(_clean).where((h) => _allNames.any((n) => _headerMatches(h,n))).length;
+      if (current > score) { score = current; best = i; }
     }
     return best;
   }
 
-  List<String> get _allNames => [
-        ..._dateNames,
-        ..._docNames,
-        ..._amountNames,
-        ..._debitNames,
-        ..._creditNames,
-        ..._balanceNames,
-        ..._descNames,
-      ];
+  List<String> get _allNames => [..._dateNames,..._docNames,..._amountNames,..._debitNames,..._creditNames,..._balanceNames,..._descNames];
 
   int? _find(List<String> headers, List<String> names) {
-    for (var index = 0; index < headers.length; index++) {
-      if (names.any((name) => _headerMatches(headers[index], name))) {
-        return index;
-      }
-    }
+    for (var i = 0; i < headers.length; i++) if (names.any((n) => _headerMatches(headers[i],n))) return i;
     return null;
   }
 
   bool _headerMatches(String header, String name) {
-    final normalizedHeader = _norm(header);
-    final normalizedName = _norm(name);
-    if (normalizedHeader.isEmpty || normalizedName.isEmpty) return false;
-    return normalizedHeader == normalizedName ||
-        normalizedHeader.contains(normalizedName) ||
-        normalizedName.contains(normalizedHeader);
+    final h = _norm(header), n = _norm(name);
+    return h == n || h.contains(n) || n.contains(h);
   }
 
   int? _guessDate(List<List<dynamic>> rows, int count) {
-    var best = 0;
-    int? column;
-    for (var current = 0; current < count; current++) {
-      final score = rows
-          .take(40)
-          .where((row) => _date(_cell(row, current)) != null)
-          .length;
-      if (score > best) {
-        best = score;
-        column = current;
-      }
+    var best = 0; int? column;
+    for (var c = 0; c < count; c++) {
+      final score = rows.take(40).where((r) => _date(_cell(r,c)) != null).length;
+      if (score > best) { best = score; column = c; }
     }
     return best >= 2 ? column : null;
   }
 
-  dynamic _cell(List<dynamic> row, int? index) =>
-      index == null || index < 0 || index >= row.length ? null : row[index];
-
+  dynamic _cell(List<dynamic> row, int? index) => index == null || index < 0 || index >= row.length ? null : row[index];
   String _clean(dynamic value) => value?.toString().trim() ?? '';
-
-  String _norm(String value) => value
-      .toLowerCase()
-      .replaceAll('أ', 'ا')
-      .replaceAll('إ', 'ا')
-      .replaceAll('آ', 'ا')
-      .replaceAll(RegExp(r'[\s_\-]+'), ' ')
-      .trim();
-
-  String? _nullable(dynamic value) {
-    final text = _clean(value);
-    return text.isEmpty ? null : text;
-  }
+  String? _nullable(dynamic value) { final t = _clean(value); return t.isEmpty ? null : t; }
+  String _norm(String v) => v.toLowerCase().replaceAll('أ','ا').replaceAll('إ','ا').replaceAll('آ','ا').replaceAll('ة','ه').replaceAll(RegExp(r'[\s_\-]+'),' ').trim();
 
   DateTime? _date(dynamic value) {
-    if (value is DateTime) return DateTime(value.year, value.month, value.day);
-    if (value is num && value > 20000 && value < 80000) {
-      return DateTime(1899, 12, 30).add(Duration(days: value.round()));
-    }
-    final text = _clean(value);
-    if (text.isEmpty) return null;
-    final iso = DateTime.tryParse(text);
-    if (iso != null) return DateTime(iso.year, iso.month, iso.day);
-    final parts = text
-        .replaceAll('.', '/')
-        .replaceAll('-', '/')
-        .split('/')
-        .map(int.tryParse)
-        .toList(growable: false);
-    if (parts.length != 3 || parts.any((part) => part == null)) return null;
-    final a = parts[0]!;
-    final b = parts[1]!;
-    final c = parts[2]!;
-    final year = a > 1900 ? a : (c < 100 ? 2000 + c : c);
-    final month = b;
-    final day = a > 1900 ? c : a;
-    final result = DateTime(year, month, day);
-    if (result.year != year || result.month != month || result.day != day) {
-      return null;
-    }
-    return result;
+    if (value is DateTime) return DateTime(value.year,value.month,value.day);
+    if (value is num && value > 20000 && value < 80000) return DateTime(1899,12,30).add(Duration(days:value.round()));
+    final text = _clean(value); if (text.isEmpty) return null;
+    final iso = DateTime.tryParse(text); if (iso != null) return DateTime(iso.year,iso.month,iso.day);
+    final parts = text.replaceAll('.','/').replaceAll('-','/').split('/').map(int.tryParse).toList();
+    if (parts.length != 3 || parts.any((p) => p == null)) return null;
+    final a=parts[0]!, b=parts[1]!, c=parts[2]!;
+    final year=a>1900?a:(c<100?2000+c:c), month=b, day=a>1900?c:a;
+    final result=DateTime(year,month,day);
+    return result.year==year&&result.month==month&&result.day==day?result:null;
   }
 
   double? _amount(dynamic value) {
     if (value is num) return value.toDouble();
-    var text = _clean(value);
-    if (text.isEmpty) return null;
-    final negative = text.startsWith('(') && text.endsWith(')');
-    text = text.replaceAll(RegExp(r'[^0-9,.\-]'), '').replaceAll(',', '');
-    final number = double.tryParse(text);
-    return number == null ? null : (negative ? -number : number);
+    var text=_clean(value); if(text.isEmpty)return null;
+    final negative=text.startsWith('(')&&text.endsWith(')');
+    text=text.replaceAll(RegExp(r'[^0-9,.\-]'),'').replaceAll(',','');
+    final number=double.tryParse(text); return number==null?null:(negative?-number:number);
+  }
+
+  String _fingerprint(Uint8List bytes) {
+    var hash = 0xcbf29ce484222325;
+    for (final byte in bytes) {
+      hash ^= byte;
+      hash = (hash * 0x100000001b3) & 0x7fffffffffffffff;
+    }
+    return hash.toRadixString(16);
   }
 }
