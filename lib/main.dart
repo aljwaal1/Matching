@@ -10,6 +10,8 @@ import 'services/archive_service.dart';
 import 'services/export_service.dart';
 import 'services/file_import_service.dart';
 import 'services/reconciliation_engine.dart';
+import 'screens/bank_reconciliation_screen.dart';
+import 'screens/column_mapping_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -366,163 +368,21 @@ class _SetupScreenState extends State<SetupScreen> {
     PreparedStatement prepared, {
     ColumnMapping? initial,
     required String statementLabel,
-  }) async {
-    int? date = initial?.date;
-    int? document = initial?.document;
-    int? amount = initial?.amount;
-    int? debit = initial?.debit;
-    int? credit = initial?.credit;
-    int? description = initial?.description;
-    var directAmountRule =
-        initial?.directAmountRule ?? DirectAmountRule.unknown;
-
-    return showDialog<ColumnMapping>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setLocal) {
-          DropdownButtonFormField<int?> field(
-            String label,
-            int? value,
-            ValueChanged<int?> onChanged, {
-            bool isRequired = false,
-          }) =>
-              DropdownButtonFormField<int?>(
-                initialValue: value,
-                decoration: InputDecoration(labelText: label),
-                items: [
-                  if (!isRequired)
-                    const DropdownMenuItem<int?>(
-                      value: null,
-                      child: Text('غير مستخدم'),
-                    ),
-                  ...List.generate(
-                    prepared.headers.length,
-                    (index) => DropdownMenuItem<int?>(
-                      value: index,
-                      child: Text(
-                        '${index + 1} - ${prepared.headers[index]}',
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged: onChanged,
-              );
-
-          return AlertDialog(
-            title: Row(
-              children: [
-                const CircleAvatar(
-                  backgroundColor: Color(0xFFE8E2FF),
-                  child: Icon(Icons.view_column_rounded, color: Color(0xFF6D4CFF)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(child: Text('مراجعة أعمدة $statementLabel')),
-              ],
+  }) =>
+      Navigator.push<ColumnMapping>(
+        context,
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: ColumnMappingScreen(
+              prepared: prepared,
+              initial: initial,
+              statementLabel: statementLabel,
             ),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF0E3),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFFFB36B)),
-                    ),
-                    child: const Text(
-                      'راجع الاختيارات المقترحة وعدّل أي عمود قبل اعتماد الكشف.',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  field(
-                    'عمود التاريخ',
-                    date,
-                    (value) => setLocal(() => date = value),
-                    isRequired: true,
-                  ),
-                  field(
-                    'رقم المستند',
-                    document,
-                    (value) => setLocal(() => document = value),
-                  ),
-                  field(
-                    'المبلغ المباشر',
-                    amount,
-                    (value) => setLocal(() => amount = value),
-                  ),
-                  DropdownButtonFormField<DirectAmountRule>(
-                    initialValue: directAmountRule,
-                    decoration: const InputDecoration(
-                      labelText: 'جهة عمود المبلغ المباشر',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: DirectAmountRule.unknown,
-                        child: Text('غير محدد'),
-                      ),
-                      DropdownMenuItem(
-                        value: DirectAmountRule.allDebit,
-                        child: Text('مدين'),
-                      ),
-                      DropdownMenuItem(
-                        value: DirectAmountRule.allCredit,
-                        child: Text('دائن'),
-                      ),
-                    ],
-                    onChanged: (value) => setLocal(
-                      () => directAmountRule = value ?? DirectAmountRule.unknown,
-                    ),
-                  ),
-                  field(
-                    'المدين',
-                    debit,
-                    (value) => setLocal(() => debit = value),
-                  ),
-                  field(
-                    'الدائن',
-                    credit,
-                    (value) => setLocal(() => credit = value),
-                  ),
-                  field(
-                    'البيان',
-                    description,
-                    (value) => setLocal(() => description = value),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('إلغاء'),
-              ),
-              FilledButton(
-                onPressed: date == null ||
-                        (amount == null && debit == null && credit == null)
-                    ? null
-                    : () => Navigator.pop(
-                          context,
-                          ColumnMapping(
-                            date: date!,
-                            document: document,
-                            amount: amount,
-                            debit: debit,
-                            credit: credit,
-                            description: description,
-                            directAmountRule: directAmountRule,
-                          ),
-                        ),
-                child: const Text('اعتماد أعمدة الكشف'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
+          ),
+        ),
+      );
 
   Future<void> _match() async {
     if (_first == null || _second == null) {
@@ -836,6 +696,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               onSelected: (value) =>
                                   setState(() => _showUnmatched = value),
                             ),
+                            if (widget.mode == ReconciliationMode.bank)
+                              FilledButton.icon(
+                                onPressed: _busy
+                                    ? null
+                                    : () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => Directionality(
+                                              textDirection: TextDirection.rtl,
+                                              child: BankReconciliationScreen(
+                                                firstName: widget.firstName,
+                                                secondName: widget.secondName,
+                                                result: widget.result,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                icon: const Icon(Icons.account_balance_wallet_rounded),
+                                label: const Text('إعداد التسوية البنكية'),
+                              ),
                             OutlinedButton.icon(
                               onPressed: _busy ? null : _save,
                               icon: const Icon(Icons.archive_outlined),
