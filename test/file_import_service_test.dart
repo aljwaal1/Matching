@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:matching/models/transaction_record.dart';
 import 'package:matching/services/file_import_service.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 void main() {
   test('يقرأ اختلاف ترتيب الأعمدة ويحدد المدين والدائن', () {
@@ -41,5 +43,27 @@ void main() {
       const ColumnMapping(date: 0, amount: 1, document: 2),
     );
     expect(imported.records.single.documentNumber, 'A1');
+  });
+
+  test('يستخرج عمليات من كشف PDF نصي', () async {
+    final document = PdfDocument();
+    final page = document.pages.add();
+    final font = PdfStandardFont(PdfFontFamily.helvetica, 12);
+    page.graphics.drawString(
+      '2026-07-01 INV-1001 Sales Invoice 1500 1500\n'
+      '2026-07-02 RCP-2001 Cash Receipt 500 1000',
+      font,
+      bounds: const Rect.fromLTWH(20, 20, 500, 200),
+    );
+    final bytes = Uint8List.fromList(await document.save());
+    document.dispose();
+
+    final imported = FileImportService().importBytes(
+      fileName: 'statement.pdf',
+      bytes: bytes,
+    );
+    expect(imported.records, hasLength(2));
+    expect(imported.records[0].side, EntrySide.debit);
+    expect(imported.records[1].side, EntrySide.credit);
   });
 }
