@@ -2,6 +2,8 @@ enum MatchStatus { matched, probable, unmatched }
 
 enum EntrySide { debit, credit, unknown }
 
+enum ReconciliationMode { parties, bank }
+
 class TransactionRecord {
   const TransactionRecord({
     required this.id,
