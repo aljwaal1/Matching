@@ -5,43 +5,69 @@ class BankReconciliationService {
   const BankReconciliationService();
 
   BankReconciliationStatement build({
+    String accountName = '',
     required DateTime period,
     required double bookBalance,
     required double bankBalance,
     required ReconciliationResult matchingResult,
     List<BankAdjustmentItem> previousPending = const [],
   }) {
-    final items = <BankAdjustmentItem>[
-      ...previousPending.map(
-        (item) => BankAdjustmentItem(
-          id: item.id,
-          description: item.description,
-          amount: item.amount,
-          type: item.type,
-          adjustBankBalance: item.adjustBankBalance,
-          add: item.add,
-          transaction: item.transaction,
-          fromPreviousPeriod: true,
-          cleared: item.cleared,
-        ),
-      ),
-    ];
+    final currentItems = <BankAdjustmentItem>[];
 
     for (final pair in matchingResult.pairs) {
       if (pair.status == MatchStatus.matched) continue;
-      items.add(_fromBookTransaction(pair.left));
+      currentItems.add(_fromBookTransaction(pair.left));
     }
 
     for (final transaction in matchingResult.unmatchedRight) {
-      items.add(_fromBankTransaction(transaction));
+      currentItems.add(_fromBankTransaction(transaction));
+    }
+
+    final currentKeys = currentItems
+        .map((item) => item.deduplicationKey)
+        .toSet();
+    final items = <BankAdjustmentItem>[];
+    final seen = <String>{};
+
+    for (final previous in previousPending) {
+      if (previous.cleared) continue;
+      final key = previous.deduplicationKey;
+      if (currentKeys.contains(key)) {
+        // ظهر البند في كشف الشهر الحالي؛ لذلك لا يعاد ترحيله.
+        continue;
+      }
+      if (seen.add(key)) {
+        items.add(
+          previous.copyWith(
+            fromPreviousPeriod: true,
+            status: BankItemStatus.pending,
+          ),
+        );
+      }
+    }
+
+    for (final current in currentItems) {
+      if (seen.add(current.deduplicationKey)) items.add(current);
     }
 
     return BankReconciliationStatement(
+      accountName: accountName.trim(),
       period: DateTime(period.year, period.month),
       bookBalance: bookBalance,
       bankBalance: bankBalance,
       items: List.unmodifiable(items),
     );
+  }
+
+  List<BankAdjustmentItem> addManualItem(
+    List<BankAdjustmentItem> existing,
+    BankAdjustmentItem item,
+  ) {
+    final key = item.deduplicationKey;
+    if (existing.any((value) => value.deduplicationKey == key)) {
+      throw const FormatException('هذا البند موجود مسبقًا في التسوية.');
+    }
+    return List.unmodifiable([...existing, item.copyWith(manual: true)]);
   }
 
   BankAdjustmentItem _fromBookTransaction(TransactionRecord transaction) {
@@ -71,16 +97,27 @@ class BankReconciliationService {
     final isInterest = text.contains('interest') ||
         text.contains('فائد') ||
         text.contains('عائد');
+    final isReturned = text.contains('returned') ||
+        text.contains('bounce') ||
+        text.contains('مرتجع');
+    final isDirectDeposit = text.contains('direct deposit') ||
+        text.contains('collection') ||
+        text.contains('تحصيل') ||
+        text.contains('إيداع مباشر');
 
     final type = isFee
         ? BankDifferenceType.bankFee
         : isInterest
             ? BankDifferenceType.bankInterest
-            : BankDifferenceType.unrecordedBankTransaction;
+            : isReturned
+                ? BankDifferenceType.returnedCheque
+                : isDirectDeposit
+                    ? BankDifferenceType.directDeposit
+                    : BankDifferenceType.unrecordedBankTransaction;
 
     final add = switch (type) {
-      BankDifferenceType.bankFee => false,
-      BankDifferenceType.bankInterest => true,
+      BankDifferenceType.bankFee || BankDifferenceType.returnedCheque => false,
+      BankDifferenceType.bankInterest || BankDifferenceType.directDeposit => true,
       _ => transaction.side == EntrySide.debit,
     };
 
