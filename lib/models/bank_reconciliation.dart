@@ -147,7 +147,7 @@ class BankAdjustmentItem {
 
 class BankReconciliationStatement {
   const BankReconciliationStatement({
-    required this.accountName,
+    this.accountName = '',
     required this.period,
     required this.bookBalance,
     required this.bankBalance,
