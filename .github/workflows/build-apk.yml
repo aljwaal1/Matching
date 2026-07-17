@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - 'apk/**'
       - 'DOWNLOAD_APK.md'
+      - 'CI_FAILURE.md'
 
 permissions:
   contents: write
@@ -62,22 +63,59 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
 
       - name: Test
-        run: flutter test --reporter expanded
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee test.log
 
       - name: Build release APK
-        run: flutter build apk --release --no-tree-shake-icons
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build apk --release --no-tree-shake-icons 2>&1 | tee build.log
+
+      - name: Publish failure details
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo '# فشل بناء تطبيق Matching'
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo
+            for file in analyze.log test.log build.log; do
+              if [ -f "$file" ]; then
+                echo "## $file"
+                echo '```text'
+                tail -n 180 "$file"
+                echo '```'
+                echo
+              fi
+            done
+          } > CI_FAILURE.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CI_FAILURE.md
+          git diff --cached --quiet || git commit -m "CI: record Matching build failure"
+          git push
 
       - name: Publish APK
+        if: success()
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
           mkdir -p apk
           cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
           printf '# تحميل تطبيق مطابقة الحسابات\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
+          rm -f CI_FAILURE.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add apk/Matching.apk DOWNLOAD_APK.md
+          git add -u CI_FAILURE.md 2>/dev/null || true
           git diff --cached --quiet || git commit -m "Build Matching APK"
           git push
