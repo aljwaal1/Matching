@@ -5,7 +5,13 @@ enum BankDifferenceType {
   outstandingPayment,
   bankFee,
   bankInterest,
+  returnedCheque,
+  directDeposit,
+  bankError,
+  bookError,
   unrecordedBankTransaction,
+  otherBankAdjustment,
+  otherBookAdjustment,
   reviewRequired,
 }
 
@@ -15,8 +21,24 @@ extension BankDifferenceTypeLabel on BankDifferenceType {
         BankDifferenceType.outstandingPayment => 'شيك أو دفعة معلقة',
         BankDifferenceType.bankFee => 'عمولة أو مصروف بنكي',
         BankDifferenceType.bankInterest => 'فائدة بنكية',
+        BankDifferenceType.returnedCheque => 'شيك مرتجع',
+        BankDifferenceType.directDeposit => 'إيداع أو تحصيل مباشر',
+        BankDifferenceType.bankError => 'خطأ في كشف البنك',
+        BankDifferenceType.bookError => 'خطأ في دفاتر الشركة',
         BankDifferenceType.unrecordedBankTransaction => 'حركة بنكية غير مسجلة',
+        BankDifferenceType.otherBankAdjustment => 'بند آخر يعدل كشف البنك',
+        BankDifferenceType.otherBookAdjustment => 'بند آخر يعدل دفاتر الشركة',
         BankDifferenceType.reviewRequired => 'فرق يحتاج مراجعة',
+      };
+}
+
+enum BankItemStatus { pending, cleared, carryForward }
+
+extension BankItemStatusLabel on BankItemStatus {
+  String get label => switch (this) {
+        BankItemStatus.pending => 'يبقى معلقًا',
+        BankItemStatus.cleared => 'تمت تسويته',
+        BankItemStatus.carryForward => 'يرحّل للشهر القادم',
       };
 }
 
@@ -30,7 +52,8 @@ class BankAdjustmentItem {
     required this.add,
     this.transaction,
     this.fromPreviousPeriod = false,
-    this.cleared = false,
+    this.status = BankItemStatus.pending,
+    this.manual = false,
   });
 
   final String id;
@@ -41,35 +64,97 @@ class BankAdjustmentItem {
   final bool add;
   final TransactionRecord? transaction;
   final bool fromPreviousPeriod;
-  final bool cleared;
+  final BankItemStatus status;
+  final bool manual;
+
+  bool get cleared => status == BankItemStatus.cleared;
+  bool get shouldCarryForward => status == BankItemStatus.carryForward;
+
+  String get deduplicationKey {
+    final transactionId = transaction?.id.trim();
+    if (transactionId != null && transactionId.isNotEmpty) {
+      return 'tx:$transactionId';
+    }
+    final normalizedDescription = description
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    return '${adjustBankBalance ? 'bank' : 'book'}|'
+        '${amount.abs().toStringAsFixed(2)}|$normalizedDescription';
+  }
 
   BankAdjustmentItem copyWith({
+    String? description,
+    double? amount,
     BankDifferenceType? type,
     bool? adjustBankBalance,
     bool? add,
-    bool? cleared,
+    bool? fromPreviousPeriod,
+    BankItemStatus? status,
+    bool? manual,
   }) =>
       BankAdjustmentItem(
         id: id,
-        description: description,
-        amount: amount,
+        description: description ?? this.description,
+        amount: amount ?? this.amount,
         type: type ?? this.type,
         adjustBankBalance: adjustBankBalance ?? this.adjustBankBalance,
         add: add ?? this.add,
         transaction: transaction,
-        fromPreviousPeriod: fromPreviousPeriod,
-        cleared: cleared ?? this.cleared,
+        fromPreviousPeriod: fromPreviousPeriod ?? this.fromPreviousPeriod,
+        status: status ?? this.status,
+        manual: manual ?? this.manual,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'description': description,
+        'amount': amount,
+        'type': type.name,
+        'adjustBankBalance': adjustBankBalance,
+        'add': add,
+        'transaction': transaction == null ? null : _transactionToJson(transaction!),
+        'fromPreviousPeriod': fromPreviousPeriod,
+        'status': status.name,
+        'manual': manual,
+      };
+
+  factory BankAdjustmentItem.fromJson(Map<String, dynamic> json) =>
+      BankAdjustmentItem(
+        id: json['id'] as String,
+        description: json['description'] as String? ?? '',
+        amount: (json['amount'] as num).toDouble().abs(),
+        type: BankDifferenceType.values.byName(
+          json['type'] as String? ?? BankDifferenceType.reviewRequired.name,
+        ),
+        adjustBankBalance: json['adjustBankBalance'] as bool? ?? true,
+        add: json['add'] as bool? ?? true,
+        transaction: json['transaction'] == null
+            ? null
+            : _transactionFromJson(
+                Map<String, dynamic>.from(json['transaction'] as Map),
+              ),
+        fromPreviousPeriod: json['fromPreviousPeriod'] as bool? ?? false,
+        status: BankItemStatus.values.byName(
+          json['status'] as String? ??
+              ((json['cleared'] as bool? ?? false)
+                  ? BankItemStatus.cleared.name
+                  : BankItemStatus.pending.name),
+        ),
+        manual: json['manual'] as bool? ?? false,
       );
 }
 
 class BankReconciliationStatement {
   const BankReconciliationStatement({
+    required this.accountName,
     required this.period,
     required this.bookBalance,
     required this.bankBalance,
     required this.items,
   });
 
+  final String accountName;
   final DateTime period;
   final double bookBalance;
   final double bankBalance;
@@ -87,6 +172,70 @@ class BankReconciliationStatement {
 
   bool get isBalanced => difference.abs() <= 0.01;
 
-  List<BankAdjustmentItem> get carryForwardItems =>
-      items.where((item) => !item.cleared).toList(growable: false);
+  List<BankAdjustmentItem> get carryForwardItems => items
+      .where((item) => item.status == BankItemStatus.carryForward)
+      .toList(growable: false);
+
+  BankReconciliationStatement copyWith({
+    String? accountName,
+    DateTime? period,
+    double? bookBalance,
+    double? bankBalance,
+    List<BankAdjustmentItem>? items,
+  }) =>
+      BankReconciliationStatement(
+        accountName: accountName ?? this.accountName,
+        period: period ?? this.period,
+        bookBalance: bookBalance ?? this.bookBalance,
+        bankBalance: bankBalance ?? this.bankBalance,
+        items: List.unmodifiable(items ?? this.items),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'accountName': accountName,
+        'period': period.toIso8601String(),
+        'bookBalance': bookBalance,
+        'bankBalance': bankBalance,
+        'adjustedBankBalance': adjustedBankBalance,
+        'adjustedBookBalance': adjustedBookBalance,
+        'difference': difference,
+        'isBalanced': isBalanced,
+        'items': items.map((item) => item.toJson()).toList(growable: false),
+      };
+
+  factory BankReconciliationStatement.fromJson(Map<String, dynamic> json) =>
+      BankReconciliationStatement(
+        accountName: json['accountName'] as String? ?? '',
+        period: DateTime.parse(json['period'] as String),
+        bookBalance: (json['bookBalance'] as num).toDouble(),
+        bankBalance: (json['bankBalance'] as num).toDouble(),
+        items: (json['items'] as List? ?? const [])
+            .map(
+              (item) => BankAdjustmentItem.fromJson(
+                Map<String, dynamic>.from(item as Map),
+              ),
+            )
+            .toList(growable: false),
+      );
 }
+
+Map<String, dynamic> _transactionToJson(TransactionRecord item) => {
+      'id': item.id,
+      'date': item.date.toIso8601String(),
+      'amount': item.amount,
+      'documentNumber': item.documentNumber,
+      'description': item.description,
+      'sourceRow': item.sourceRow,
+      'side': item.side.name,
+    };
+
+TransactionRecord _transactionFromJson(Map<String, dynamic> map) =>
+    TransactionRecord(
+      id: map['id'] as String,
+      date: DateTime.parse(map['date'] as String),
+      amount: (map['amount'] as num).toDouble(),
+      documentNumber: map['documentNumber'] as String?,
+      description: map['description'] as String? ?? '',
+      sourceRow: map['sourceRow'] as int?,
+      side: EntrySide.values.byName(map['side'] as String? ?? 'unknown'),
+    );
