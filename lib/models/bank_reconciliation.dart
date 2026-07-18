@@ -70,6 +70,10 @@ class BankAdjustmentItem {
   bool get cleared => status == BankItemStatus.cleared;
   bool get shouldCarryForward => status == BankItemStatus.carryForward;
 
+  /// لا يدخل البند في حساب الرصيد المعدل قبل تحديد طبيعته المحاسبية.
+  bool get includedInCalculation =>
+      !cleared && type != BankDifferenceType.reviewRequired;
+
   String get deduplicationKey {
     final transactionId = transaction?.id.trim();
     if (transactionId != null && transactionId.isNotEmpty) {
@@ -161,16 +165,19 @@ class BankReconciliationStatement {
   final List<BankAdjustmentItem> items;
 
   double get adjustedBankBalance => items
-      .where((item) => item.adjustBankBalance && !item.cleared)
+      .where((item) => item.adjustBankBalance && item.includedInCalculation)
       .fold(bankBalance, (sum, item) => sum + (item.add ? item.amount : -item.amount));
 
   double get adjustedBookBalance => items
-      .where((item) => !item.adjustBankBalance && !item.cleared)
+      .where((item) => !item.adjustBankBalance && item.includedInCalculation)
       .fold(bookBalance, (sum, item) => sum + (item.add ? item.amount : -item.amount));
 
   double get difference => adjustedBankBalance - adjustedBookBalance;
 
-  bool get isBalanced => difference.abs() <= 0.01;
+  bool get hasReviewItems =>
+      items.any((item) => item.type == BankDifferenceType.reviewRequired && !item.cleared);
+
+  bool get isBalanced => !hasReviewItems && difference.abs() <= 0.01;
 
   List<BankAdjustmentItem> get carryForwardItems => items
       .where((item) => item.status == BankItemStatus.carryForward)
