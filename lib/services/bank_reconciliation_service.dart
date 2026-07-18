@@ -71,16 +71,20 @@ class BankReconciliationService {
   }
 
   BankAdjustmentItem _fromBookTransaction(TransactionRecord transaction) {
+    // حساب البنك في دفاتر الشركة أصل: المدين زيادة، والدائن نقصان.
     final isDeposit = transaction.side == EntrySide.debit;
+    final needsReview = transaction.side == EntrySide.unknown;
     return BankAdjustmentItem(
       id: 'book-${transaction.id}',
       description: transaction.description.isEmpty
           ? 'عملية موجودة في دفاتر الشركة فقط'
           : transaction.description,
       amount: transaction.amount,
-      type: isDeposit
-          ? BankDifferenceType.depositInTransit
-          : BankDifferenceType.outstandingPayment,
+      type: needsReview
+          ? BankDifferenceType.reviewRequired
+          : isDeposit
+              ? BankDifferenceType.depositInTransit
+              : BankDifferenceType.outstandingPayment,
       adjustBankBalance: true,
       add: isDeposit,
       transaction: transaction,
@@ -105,20 +109,25 @@ class BankReconciliationService {
         text.contains('تحصيل') ||
         text.contains('إيداع مباشر');
 
-    final type = isFee
-        ? BankDifferenceType.bankFee
-        : isInterest
-            ? BankDifferenceType.bankInterest
-            : isReturned
-                ? BankDifferenceType.returnedCheque
-                : isDirectDeposit
-                    ? BankDifferenceType.directDeposit
-                    : BankDifferenceType.unrecordedBankTransaction;
+    final type = transaction.side == EntrySide.unknown
+        ? BankDifferenceType.reviewRequired
+        : isFee
+            ? BankDifferenceType.bankFee
+            : isInterest
+                ? BankDifferenceType.bankInterest
+                : isReturned
+                    ? BankDifferenceType.returnedCheque
+                    : isDirectDeposit
+                        ? BankDifferenceType.directDeposit
+                        : BankDifferenceType.unrecordedBankTransaction;
 
     final add = switch (type) {
       BankDifferenceType.bankFee || BankDifferenceType.returnedCheque => false,
       BankDifferenceType.bankInterest || BankDifferenceType.directDeposit => true,
-      _ => transaction.side == EntrySide.debit,
+      // في كشف البنك: الدائن يزيد حساب العميل، والمدين ينقصه.
+      BankDifferenceType.unrecordedBankTransaction =>
+        transaction.side == EntrySide.credit,
+      _ => true,
     };
 
     return BankAdjustmentItem(
