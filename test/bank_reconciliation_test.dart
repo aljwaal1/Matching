@@ -82,8 +82,110 @@ void main() {
     expect(statement.isBalanced, isTrue);
   });
 
+  test('review-required items do not affect totals or falsely balance', () {
+    final statement = BankReconciliationStatement(
+      period: DateTime(2026, 7),
+      bankBalance: 100,
+      bookBalance: 100,
+      items: const [
+        BankAdjustmentItem(
+          id: 'unknown',
+          description: 'حركة غير معروفة',
+          amount: 25,
+          type: BankDifferenceType.reviewRequired,
+          adjustBankBalance: false,
+          add: true,
+        ),
+      ],
+    );
+
+    expect(statement.adjustedBankBalance, 100);
+    expect(statement.adjustedBookBalance, 100);
+    expect(statement.hasReviewItems, isTrue);
+    expect(statement.isBalanced, isFalse);
+  });
+
+  test('bank statement debit decreases books and credit increases books', () {
+    final result = ReconciliationResult(
+      pairs: const [],
+      unmatchedRight: [
+        transaction('debit', 40, side: EntrySide.debit),
+        transaction('credit', 70, side: EntrySide.credit),
+      ],
+    );
+
+    final statement = service.build(
+      period: DateTime(2026, 7),
+      bookBalance: 100,
+      bankBalance: 130,
+      matchingResult: result,
+    );
+
+    final debitItem = statement.items.firstWhere(
+      (item) => item.transaction?.id == 'debit',
+    );
+    final creditItem = statement.items.firstWhere(
+      (item) => item.transaction?.id == 'credit',
+    );
+
+    expect(debitItem.adjustBankBalance, isFalse);
+    expect(debitItem.add, isFalse);
+    expect(creditItem.adjustBankBalance, isFalse);
+    expect(creditItem.add, isTrue);
+    expect(statement.adjustedBookBalance, 130);
+    expect(statement.isBalanced, isTrue);
+  });
+
+  test('unknown transaction direction requires review', () {
+    final statement = service.build(
+      period: DateTime(2026, 7),
+      bookBalance: 100,
+      bankBalance: 100,
+      matchingResult: ReconciliationResult(
+        pairs: const [],
+        unmatchedRight: [
+          transaction('unknown', 20, side: EntrySide.unknown),
+        ],
+      ),
+    );
+
+    expect(statement.items.single.type, BankDifferenceType.reviewRequired);
+    expect(statement.adjustedBookBalance, 100);
+    expect(statement.isBalanced, isFalse);
+  });
+
+  test('changing standard classification updates accounting treatment', () {
+    const original = BankAdjustmentItem(
+      id: 'item',
+      description: 'بند',
+      amount: 10,
+      type: BankDifferenceType.reviewRequired,
+      adjustBankBalance: false,
+      add: true,
+    );
+
+    final deposit = original.copyWith(type: BankDifferenceType.depositInTransit);
+    final cheque = original.copyWith(type: BankDifferenceType.outstandingPayment);
+    final fee = original.copyWith(type: BankDifferenceType.bankFee);
+    final interest = original.copyWith(type: BankDifferenceType.bankInterest);
+
+    expect(deposit.adjustBankBalance, isTrue);
+    expect(deposit.add, isTrue);
+    expect(cheque.adjustBankBalance, isTrue);
+    expect(cheque.add, isFalse);
+    expect(fee.adjustBankBalance, isFalse);
+    expect(fee.add, isFalse);
+    expect(interest.adjustBankBalance, isFalse);
+    expect(interest.add, isTrue);
+  });
+
   test('does not carry a previous item that appears in current month', () {
-    final current = transaction('same', 50, description: 'رسوم بنكية');
+    final current = transaction(
+      'same',
+      50,
+      side: EntrySide.debit,
+      description: 'رسوم بنكية',
+    );
     final previous = BankAdjustmentItem(
       id: 'old',
       description: 'رسوم بنكية',
@@ -159,10 +261,25 @@ void main() {
     final result = ReconciliationResult(
       pairs: const [],
       unmatchedRight: [
-        transaction('fee', 5, description: 'رسوم بنكية'),
-        transaction('interest', 7, description: 'فائدة دائنة'),
-        transaction('returned', 9, description: 'شيك مرتجع'),
-        transaction('direct', 11, description: 'تحصيل مباشر'),
+        transaction('fee', 5, side: EntrySide.debit, description: 'رسوم بنكية'),
+        transaction(
+          'interest',
+          7,
+          side: EntrySide.credit,
+          description: 'فائدة دائنة',
+        ),
+        transaction(
+          'returned',
+          9,
+          side: EntrySide.debit,
+          description: 'شيك مرتجع',
+        ),
+        transaction(
+          'direct',
+          11,
+          side: EntrySide.credit,
+          description: 'تحصيل مباشر',
+        ),
       ],
     );
 
