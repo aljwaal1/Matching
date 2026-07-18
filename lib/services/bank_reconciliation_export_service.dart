@@ -7,7 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../models/bank_reconciliation.dart';
-import 'export_service.dart';
+import 'arabic_pdf_support.dart';
 
 class BankReconciliationExportService {
   Future<File> exportPdf({
@@ -16,9 +16,7 @@ class BankReconciliationExportService {
     required BankReconciliationStatement statement,
   }) async {
     final fonts = await loadArabicPdfFonts();
-    final document = pw.Document(
-      theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
-    );
+    final document = pw.Document(theme: arabicPdfTheme(fonts));
 
     final bankItems = statement.items
         .where((item) => item.adjustBankBalance && !item.cleared)
@@ -30,12 +28,25 @@ class BankReconciliationExportService {
     document.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.fromLTRB(30, 26, 30, 28),
+        margin: const pw.EdgeInsets.fromLTRB(28, 24, 28, 30),
         textDirection: pw.TextDirection.rtl,
+        theme: arabicPdfTheme(fonts),
+        maxPages: 100,
+        footer: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 8),
+          child: arabicPdfText(
+            'الصفحة ${context.pageNumber} من ${context.pagesCount}',
+            fonts,
+            fontSize: 8,
+            color: PdfColors.grey700,
+            textAlign: pw.TextAlign.center,
+          ),
+        ),
         build: (_) => [
-          _header(companyName, bankName, statement),
+          _header(fonts, companyName, bankName, statement),
           pw.SizedBox(height: 16),
           _reconciliationSection(
+            fonts: fonts,
             title: 'أولًا: تسوية رصيد كشف البنك',
             openingLabel: 'الرصيد حسب كشف البنك',
             openingBalance: statement.bankBalance,
@@ -46,6 +57,7 @@ class BankReconciliationExportService {
           ),
           pw.SizedBox(height: 18),
           _reconciliationSection(
+            fonts: fonts,
             title: 'ثانيًا: تسوية رصيد دفاتر الشركة',
             openingLabel: 'الرصيد حسب دفاتر الشركة',
             openingBalance: statement.bookBalance,
@@ -55,18 +67,21 @@ class BankReconciliationExportService {
             color: PdfColor.fromHex('#6D4CFF'),
           ),
           pw.SizedBox(height: 18),
-          _finalResult(statement),
-          pw.SizedBox(height: 16),
-          pw.Text(
-            'ملاحظة: البنود غير المسوّاة تُراجع وتُرحّل إلى التسوية التالية عند بقائها معلقة.',
-            textDirection: pw.TextDirection.rtl,
-            style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
+          _finalResult(fonts, statement),
+          pw.SizedBox(height: 14),
+          _statusSummary(fonts, statement),
+          pw.SizedBox(height: 12),
+          arabicPdfText(
+            'ملاحظة: البنود التي لم تتم تسويتها تبقى قيد المراجعة، ويجوز ترحيلها إلى الشهر التالي حسب اختيار المستخدم.',
+            fonts,
+            fontSize: 9,
+            color: PdfColors.grey700,
           ),
         ],
       ),
     );
 
-    final period = DateFormat('yyyy-MM').format(statement.period);
+    final period = DateFormat('yyyy-MM', 'en_US').format(statement.period);
     final file = File(
       '${(await getTemporaryDirectory()).path}/تسوية_بنكية_$period.pdf',
     );
@@ -81,6 +96,7 @@ class BankReconciliationExportService {
   }
 
   pw.Widget _header(
+    ArabicPdfFonts fonts,
     String companyName,
     String bankName,
     BankReconciliationStatement statement,
@@ -94,35 +110,45 @@ class BankReconciliationExportService {
           border: pw.Border.all(color: PdfColor.fromHex('#CFC4FF')),
         ),
         child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            pw.Text(
+            arabicPdfText(
               'تقرير التسوية البنكية',
-              textDirection: pw.TextDirection.rtl,
-              style: pw.TextStyle(
-                fontSize: 18,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColor.fromHex('#4B2FCC'),
-              ),
+              fonts,
+              fontSize: 18,
+              bold: true,
+              color: PdfColor.fromHex('#4B2FCC'),
+              textAlign: pw.TextAlign.center,
             ),
-            pw.SizedBox(height: 5),
-            pw.Text(
+            pw.SizedBox(height: 7),
+            arabicPdfText(
               'الشركة: $companyName',
-              textDirection: pw.TextDirection.rtl,
+              fonts,
+              fontSize: 10,
             ),
-            pw.Text(
-              'البنك / الكشف: $bankName',
-              textDirection: pw.TextDirection.rtl,
+            arabicPdfText(
+              'البنك أو الحساب: $bankName',
+              fonts,
+              fontSize: 10,
             ),
-            pw.Text(
-              'عن الشهر المنتهي في ${DateFormat('yyyy/MM').format(statement.period)}',
-              textDirection: pw.TextDirection.rtl,
+            arabicPdfText(
+              'شهر التسوية: ${DateFormat('yyyy/MM', 'en_US').format(statement.period)}',
+              fonts,
+              fontSize: 10,
+              bold: true,
+            ),
+            arabicPdfText(
+              'تاريخ إعداد التقرير: ${DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now())}',
+              fonts,
+              fontSize: 9,
+              color: PdfColors.grey700,
             ),
           ],
         ),
       );
 
   pw.Widget _reconciliationSection({
+    required ArabicPdfFonts fonts,
     required String title,
     required String openingLabel,
     required double openingBalance,
@@ -132,90 +158,108 @@ class BankReconciliationExportService {
     required PdfColor color,
   }) {
     final rows = <pw.TableRow>[
-      _row(openingLabel, openingBalance, bold: true),
+      pw.TableRow(
+        repeat: true,
+        decoration: pw.BoxDecoration(color: color),
+        verticalAlignment: pw.TableCellVerticalAlignment.middle,
+        children: [
+          _sectionHeaderCell(fonts, title),
+          _sectionHeaderCell(fonts, 'المبلغ'),
+        ],
+      ),
+      _row(
+        fonts,
+        openingLabel,
+        openingBalance,
+        bold: true,
+      ),
       ...items.map(
         (item) => _row(
+          fonts,
           '${item.add ? 'يضاف' : 'يخصم'}: ${item.type.label}'
-          '${item.description.isEmpty ? '' : ' — ${item.description}'}',
+          '${item.description.isEmpty ? '' : '\nالبيان: ${item.description}'}'
+          '\nالحالة: ${item.status.label}',
           item.add ? item.amount : -item.amount,
         ),
       ),
-      _row(closingLabel, closingBalance, bold: true, highlight: true),
+      _row(
+        fonts,
+        closingLabel,
+        closingBalance,
+        bold: true,
+        highlight: true,
+      ),
     ];
 
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-      children: [
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: pw.BoxDecoration(
-            color: color,
-            borderRadius: const pw.BorderRadius.only(
-              topLeft: pw.Radius.circular(7),
-              topRight: pw.Radius.circular(7),
-            ),
-          ),
-          child: pw.Text(
-            title,
-            textDirection: pw.TextDirection.rtl,
-            style: pw.TextStyle(
-              color: PdfColors.white,
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
-          columnWidths: const {
-            0: pw.FlexColumnWidth(4.5),
-            1: pw.FlexColumnWidth(1.5),
-          },
-          children: rows,
-        ),
-      ],
+    return pw.Table(
+      border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.5),
+      columnWidths: const {
+        0: pw.FlexColumnWidth(4.8),
+        1: pw.FlexColumnWidth(1.5),
+      },
+      children: rows,
     );
   }
 
+  pw.Widget _sectionHeaderCell(
+    ArabicPdfFonts fonts,
+    String text,
+  ) =>
+      pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 9, vertical: 8),
+        child: arabicPdfText(
+          text,
+          fonts,
+          fontSize: 11,
+          bold: true,
+          color: PdfColors.white,
+          textAlign: pw.TextAlign.center,
+        ),
+      );
+
   pw.TableRow _row(
+    ArabicPdfFonts fonts,
     String label,
     double amount, {
     bool bold = false,
     bool highlight = false,
   }) =>
       pw.TableRow(
+        verticalAlignment: pw.TableCellVerticalAlignment.middle,
         decoration: highlight
             ? pw.BoxDecoration(color: PdfColor.fromHex('#FFF3D6'))
             : null,
         children: [
           pw.Padding(
             padding: const pw.EdgeInsets.all(7),
-            child: pw.Text(
+            child: arabicPdfText(
               label,
-              textDirection: pw.TextDirection.rtl,
-              textAlign: pw.TextAlign.right,
-              style: pw.TextStyle(
-                fontSize: 9.5,
-                fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              ),
+              fonts,
+              fontSize: 9.5,
+              bold: bold,
             ),
           ),
           pw.Padding(
             padding: const pw.EdgeInsets.all(7),
-            child: pw.Text(
-              amount.toStringAsFixed(2),
-              textAlign: pw.TextAlign.left,
-              style: pw.TextStyle(
-                fontSize: 9.5,
-                fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              ),
+            child: arabicPdfText(
+              _money(amount),
+              fonts,
+              fontSize: 9.5,
+              bold: bold,
+              textAlign: pw.TextAlign.center,
             ),
           ),
         ],
       );
 
-  pw.Widget _finalResult(BankReconciliationStatement statement) {
+  pw.Widget _finalResult(
+    ArabicPdfFonts fonts,
+    BankReconciliationStatement statement,
+  ) {
     final balanced = statement.isBalanced;
+    final color = balanced
+        ? PdfColor.fromHex('#007D69')
+        : PdfColor.fromHex('#B51F50');
     return pw.Container(
       width: double.infinity,
       padding: const pw.EdgeInsets.all(13),
@@ -224,32 +268,90 @@ class BankReconciliationExportService {
             ? PdfColor.fromHex('#DFFFF7')
             : PdfColor.fromHex('#FFE5EC'),
         borderRadius: pw.BorderRadius.circular(8),
-        border: pw.Border.all(
-          color: balanced
-              ? PdfColor.fromHex('#00A98F')
-              : PdfColor.fromHex('#D52B61'),
-        ),
+        border: pw.Border.all(color: color),
       ),
       child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.end,
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
-          pw.Text(
-            'الفرق بين الرصيدين المعدلين: ${statement.difference.toStringAsFixed(2)}',
-            textDirection: pw.TextDirection.rtl,
-            style: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 12,
-            ),
+          arabicPdfText(
+            'الفرق بين الرصيدين المعدلين: ${_money(statement.difference)}',
+            fonts,
+            fontSize: 12,
+            bold: true,
+            color: color,
+            textAlign: pw.TextAlign.center,
           ),
-          pw.SizedBox(height: 4),
-          pw.Text(
+          pw.SizedBox(height: 5),
+          arabicPdfText(
             balanced
                 ? 'النتيجة: التسوية البنكية متوازنة.'
                 : 'النتيجة: التسوية غير متوازنة وتحتاج إلى مراجعة البنود أو الأرصدة.',
-            textDirection: pw.TextDirection.rtl,
+            fonts,
+            fontSize: 10,
+            bold: true,
+            textAlign: pw.TextAlign.center,
           ),
         ],
       ),
     );
+  }
+
+  pw.Widget _statusSummary(
+    ArabicPdfFonts fonts,
+    BankReconciliationStatement statement,
+  ) {
+    final cleared = statement.items.where((item) => item.cleared).length;
+    final pending = statement.items
+        .where((item) => item.status == BankItemStatus.pending)
+        .length;
+    final carried = statement.items
+        .where((item) => item.status == BankItemStatus.carryForward)
+        .length;
+
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(11),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromHex('#F7F7FA'),
+        borderRadius: pw.BorderRadius.circular(7),
+        border: pw.Border.all(color: PdfColors.grey400),
+      ),
+      child: pw.Row(
+        children: [
+          pw.Expanded(
+            child: arabicPdfText(
+              'تمت تسويتها: $cleared',
+              fonts,
+              fontSize: 9,
+              bold: true,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Expanded(
+            child: arabicPdfText(
+              'معلقة: $pending',
+              fonts,
+              fontSize: 9,
+              bold: true,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+          pw.Expanded(
+            child: arabicPdfText(
+              'مرحلة للشهر القادم: $carried',
+              fonts,
+              fontSize: 9,
+              bold: true,
+              textAlign: pw.TextAlign.center,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _money(double value) {
+    final formatted = NumberFormat('#,##0.00', 'en_US').format(value.abs());
+    return value < 0 ? '-$formatted' : formatted;
   }
 }
