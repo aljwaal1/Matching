@@ -62,9 +62,44 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
-      - name: Fix TextDirection import conflict
+      - name: Apply bank period setup
+        shell: bash
         run: |
-          sed -i "s/import 'package:intl\/intl.dart';/import 'package:intl\/intl.dart' hide TextDirection;/" lib/screens/bank_reconciliation_screen.dart
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('lib/screens/bank_reconciliation_screen.dart')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              "import 'package:intl/intl.dart';",
+              "import 'package:intl/intl.dart' hide TextDirection;",
+          )
+          text = text.replace(
+              "  bool _busy = false;\n",
+              "  bool _busy = false;\n  bool _usePreviousReconciliation = false;\n",
+              1,
+          )
+          text = text.replace(
+              "                _monthField(),\n                TextField(\n                  controller: _bankController,",
+              "                _monthField(),\n                Card(\n                  margin: EdgeInsets.zero,\n                  child: Padding(\n                    padding: const EdgeInsets.symmetric(vertical: 6),\n                    child: Column(\n                      crossAxisAlignment: CrossAxisAlignment.stretch,\n                      children: [\n                        const Padding(\n                          padding: EdgeInsets.fromLTRB(12, 8, 12, 4),\n                          child: Text(\n                            'هل تريد الاعتماد على تسوية سابقة؟',\n                            style: TextStyle(fontWeight: FontWeight.bold),\n                          ),\n                        ),\n                        RadioListTile<bool>(\n                          value: false,\n                          groupValue: _usePreviousReconciliation,\n                          title: const Text('لا، ابدأ تسوية جديدة'),\n                          subtitle: const Text('لن يتم استدعاء أي بنود من الأشهر السابقة.'),\n                          onChanged: (value) => setState(\n                            () => _usePreviousReconciliation = value ?? false,\n                          ),\n                        ),\n                        RadioListTile<bool>(\n                          value: true,\n                          groupValue: _usePreviousReconciliation,\n                          title: const Text('نعم، اعتمد على آخر تسوية سابقة'),\n                          subtitle: const Text('سيتم استدعاء البنود غير المسوّاة لنفس الحساب دون تكرار.'),\n                          onChanged: (value) => setState(\n                            () => _usePreviousReconciliation = value ?? false,\n                          ),\n                        ),\n                      ],\n                    ),\n                  ),\n                ),\n                TextField(\n                  controller: _bankController,",
+              1,
+          )
+          text = text.replace(
+              "  void _calculate() {",
+              "  Future<void> _calculate() async {",
+              1,
+          )
+          text = text.replace(
+              "    setState(() {\n      _statement = _service.build(",
+              "    final previousPending = _usePreviousReconciliation\n        ? await _archive.pendingFromPrevious(\n            accountName: account,\n            beforePeriod: _period,\n          )\n        : const <BankAdjustmentItem>[];\n    if (!mounted) return;\n    setState(() {\n      _statement = _service.build(",
+              1,
+          )
+          text = text.replace(
+              "        matchingResult: widget.result,\n      );",
+              "        matchingResult: widget.result,\n        previousPending: previousPending,\n      );",
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
 
       - name: Analyze
         shell: bash
