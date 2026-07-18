@@ -34,6 +34,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   DateTime _period = DateTime(DateTime.now().year, DateTime.now().month);
   BankReconciliationStatement? _statement;
   bool _busy = false;
+  bool _usePreviousReconciliation = false;
 
   @override
   void initState() {
@@ -167,6 +168,42 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
                   ),
                 ),
                 _monthField(),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(12, 8, 12, 4),
+                          child: Text(
+                            'هل تريد الاعتماد على تسوية سابقة؟',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        RadioListTile<bool>(
+                          value: false,
+                          groupValue: _usePreviousReconciliation,
+                          title: const Text('لا، ابدأ تسوية جديدة'),
+                          subtitle: const Text('لن يتم استدعاء أي بنود من الأشهر السابقة.'),
+                          onChanged: (value) => setState(
+                            () => _usePreviousReconciliation = value ?? false,
+                          ),
+                        ),
+                        RadioListTile<bool>(
+                          value: true,
+                          groupValue: _usePreviousReconciliation,
+                          title: const Text('نعم، اعتمد على آخر تسوية سابقة'),
+                          subtitle: const Text('سيتم استدعاء البنود غير المسوّاة لنفس الحساب دون تكرار.'),
+                          onChanged: (value) => setState(
+                            () => _usePreviousReconciliation = value ?? false,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 TextField(
                   controller: _bankController,
                   keyboardType: const TextInputType.numberWithOptions(
@@ -548,7 +585,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
     }
   }
 
-  void _calculate() {
+  Future<void> _calculate() async {
     final book = double.tryParse(_bookController.text.replaceAll(',', ''));
     final bank = double.tryParse(_bankController.text.replaceAll(',', ''));
     final account = _accountController.text.trim();
@@ -556,6 +593,13 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
       _message('أدخل اسم الحساب والرصيدين بصورة صحيحة.');
       return;
     }
+    final previousPending = _usePreviousReconciliation
+        ? await _archive.pendingFromPrevious(
+            accountName: account,
+            beforePeriod: _period,
+          )
+        : const <BankAdjustmentItem>[];
+    if (!mounted) return;
     setState(() {
       _statement = _service.build(
         accountName: account,
@@ -563,6 +607,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
         bookBalance: book,
         bankBalance: bank,
         matchingResult: widget.result,
+        previousPending: previousPending,
       );
     });
   }
