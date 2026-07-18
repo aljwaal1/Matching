@@ -96,19 +96,23 @@ class BankAdjustmentItem {
     bool? fromPreviousPeriod,
     BankItemStatus? status,
     bool? manual,
-  }) =>
-      BankAdjustmentItem(
-        id: id,
-        description: description ?? this.description,
-        amount: amount ?? this.amount,
-        type: type ?? this.type,
-        adjustBankBalance: adjustBankBalance ?? this.adjustBankBalance,
-        add: add ?? this.add,
-        transaction: transaction,
-        fromPreviousPeriod: fromPreviousPeriod ?? this.fromPreviousPeriod,
-        status: status ?? this.status,
-        manual: manual ?? this.manual,
-      );
+  }) {
+    final resolvedType = type ?? this.type;
+    final standard = type == null ? null : _standardTreatment(resolvedType);
+    return BankAdjustmentItem(
+      id: id,
+      description: description ?? this.description,
+      amount: amount ?? this.amount,
+      type: resolvedType,
+      adjustBankBalance:
+          adjustBankBalance ?? standard?.adjustBankBalance ?? this.adjustBankBalance,
+      add: add ?? standard?.add ?? this.add,
+      transaction: transaction,
+      fromPreviousPeriod: fromPreviousPeriod ?? this.fromPreviousPeriod,
+      status: status ?? this.status,
+      manual: manual ?? this.manual,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -148,6 +152,29 @@ class BankAdjustmentItem {
         manual: json['manual'] as bool? ?? false,
       );
 }
+
+class _AccountingTreatment {
+  const _AccountingTreatment(this.adjustBankBalance, this.add);
+
+  final bool adjustBankBalance;
+  final bool add;
+}
+
+_AccountingTreatment? _standardTreatment(BankDifferenceType type) => switch (type) {
+      BankDifferenceType.depositInTransit =>
+        const _AccountingTreatment(true, true),
+      BankDifferenceType.outstandingPayment =>
+        const _AccountingTreatment(true, false),
+      BankDifferenceType.bankFee || BankDifferenceType.returnedCheque =>
+        const _AccountingTreatment(false, false),
+      BankDifferenceType.bankInterest || BankDifferenceType.directDeposit =>
+        const _AccountingTreatment(false, true),
+      BankDifferenceType.otherBankAdjustment =>
+        const _AccountingTreatment(true, true),
+      BankDifferenceType.otherBookAdjustment =>
+        const _AccountingTreatment(false, true),
+      _ => null,
+    };
 
 class BankReconciliationStatement {
   const BankReconciliationStatement({
