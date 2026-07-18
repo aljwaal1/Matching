@@ -1,8 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:excel/excel.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -10,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
 import '../models/transaction_record.dart';
+import 'arabic_pdf_support.dart';
 
 class ExportService {
   Future<File> exportExcel({
@@ -64,82 +63,72 @@ class ExportService {
     required ReconciliationResult result,
   }) async {
     final fonts = await loadArabicPdfFonts();
-    final document = pw.Document(
-      theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
-    );
-    final rows = <List<String>>[
-      _headers,
+    final document = pw.Document(theme: arabicPdfTheme(fonts));
+    final displayRows = <_PdfResultRow>[
       ...result.pairs.map(
-        (pair) => _row(pair.left, pair.right, pair.status, pair.reason),
+        (pair) => _PdfResultRow(
+          left: pair.left,
+          right: pair.right,
+          status: pair.status,
+          reason: pair.reason,
+        ),
       ),
       ...result.unmatchedRight.map(
-        (record) => _row(
-          null,
-          record,
-          MatchStatus.unmatched,
-          'غير موجودة في الطرف الأول',
+        (record) => _PdfResultRow(
+          left: null,
+          right: record,
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في الطرف الأول',
         ),
       ),
     ];
 
     document.addPage(
       pw.MultiPage(
-        pageFormat: PdfPageFormat.a3.landscape,
-        margin: const pw.EdgeInsets.all(18),
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.fromLTRB(20, 18, 20, 24),
         textDirection: pw.TextDirection.rtl,
+        theme: arabicPdfTheme(fonts),
+        maxPages: 100,
+        footer: (context) => pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 8),
+          child: arabicPdfText(
+            'الصفحة ${context.pageNumber} من ${context.pagesCount}',
+            fonts,
+            fontSize: 8,
+            color: PdfColors.grey700,
+            textAlign: pw.TextAlign.center,
+          ),
+        ),
         build: (_) => [
-          pw.Container(
-            width: double.infinity,
-            padding: const pw.EdgeInsets.all(12),
-            decoration: pw.BoxDecoration(
-              color: PdfColor.fromHex('#F1ECFF'),
-              borderRadius: pw.BorderRadius.circular(8),
-            ),
-            child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.end,
-              children: [
-                pw.Text(
-                  name,
-                  textDirection: pw.TextDirection.rtl,
-                  style: pw.TextStyle(
-                    fontSize: 17,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 3),
-                pw.Text(
-                  '$firstName  ↔  $secondName',
-                  textDirection: pw.TextDirection.rtl,
-                ),
-                pw.Text(
-                  'متطابقة: ${result.matchedCount}   |   غير متطابقة: ${result.unmatchedCount}',
-                  textDirection: pw.TextDirection.rtl,
-                ),
-              ],
-            ),
+          _pdfHeader(
+            fonts: fonts,
+            name: name,
+            firstName: firstName,
+            secondName: secondName,
+            result: result,
           ),
-          pw.SizedBox(height: 10),
-          pw.TableHelper.fromTextArray(
-            data: rows,
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 7,
-            ),
-            cellStyle: const pw.TextStyle(fontSize: 6.3),
-            headerDecoration: pw.BoxDecoration(
-              color: PdfColor.fromHex('#DCD2FF'),
-            ),
-            border: pw.TableBorder.all(
-              color: PdfColors.grey600,
-              width: 0.4,
-            ),
-            cellAlignment: pw.Alignment.centerRight,
-            headerAlignment: pw.Alignment.centerRight,
-            cellPadding: const pw.EdgeInsets.symmetric(
-              horizontal: 3,
-              vertical: 4,
-            ),
-          ),
+          pw.SizedBox(height: 12),
+          _summaryCards(fonts, result),
+          pw.SizedBox(height: 14),
+          if (displayRows.isEmpty)
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.all(18),
+              decoration: pw.BoxDecoration(
+                color: PdfColor.fromHex('#F7F7FA'),
+                borderRadius: pw.BorderRadius.circular(8),
+                border: pw.Border.all(color: PdfColors.grey400),
+              ),
+              child: arabicPdfText(
+                'لا توجد عمليات لعرضها في تقرير المطابقة.',
+                fonts,
+                bold: true,
+                textAlign: pw.TextAlign.center,
+              ),
+            )
+          else
+            _resultsTable(fonts, displayRows),
         ],
       ),
     );
@@ -150,6 +139,260 @@ class ExportService {
     await file.writeAsBytes(await document.save(), flush: true);
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
     return file;
+  }
+
+  pw.Widget _pdfHeader({
+    required ArabicPdfFonts fonts,
+    required String name,
+    required String firstName,
+    required String secondName,
+    required ReconciliationResult result,
+  }) =>
+      pw.Container(
+        width: double.infinity,
+        padding: const pw.EdgeInsets.all(14),
+        decoration: pw.BoxDecoration(
+          color: PdfColor.fromHex('#F1ECFF'),
+          borderRadius: pw.BorderRadius.circular(8),
+          border: pw.Border.all(color: PdfColor.fromHex('#CFC4FF')),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            arabicPdfText(
+              name,
+              fonts,
+              fontSize: 18,
+              bold: true,
+              color: PdfColor.fromHex('#4B2FCC'),
+              textAlign: pw.TextAlign.center,
+            ),
+            pw.SizedBox(height: 5),
+            arabicPdfText(
+              'الطرف الأول: $firstName',
+              fonts,
+              fontSize: 10,
+            ),
+            arabicPdfText(
+              'الطرف الثاني: $secondName',
+              fonts,
+              fontSize: 10,
+            ),
+            arabicPdfText(
+              'تاريخ إعداد التقرير: ${DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now())}',
+              fonts,
+              fontSize: 9,
+              color: PdfColors.grey700,
+            ),
+          ],
+        ),
+      );
+
+  pw.Widget _summaryCards(
+    ArabicPdfFonts fonts,
+    ReconciliationResult result,
+  ) =>
+      pw.Row(
+        children: [
+          pw.Expanded(
+            child: _summaryCard(
+              fonts,
+              label: 'إجمالي العمليات',
+              value: '${result.matchedCount + result.unmatchedCount}',
+              color: PdfColor.fromHex('#6D4CFF'),
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Expanded(
+            child: _summaryCard(
+              fonts,
+              label: 'العمليات المتطابقة',
+              value: '${result.matchedCount}',
+              color: PdfColor.fromHex('#009B83'),
+            ),
+          ),
+          pw.SizedBox(width: 8),
+          pw.Expanded(
+            child: _summaryCard(
+              fonts,
+              label: 'العمليات غير المتطابقة',
+              value: '${result.unmatchedCount}',
+              color: PdfColor.fromHex('#C82E60'),
+            ),
+          ),
+        ],
+      );
+
+  pw.Widget _summaryCard(
+    ArabicPdfFonts fonts, {
+    required String label,
+    required String value,
+    required PdfColor color,
+  }) =>
+      pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: pw.BoxDecoration(
+          color: PdfColor.fromHex('#FAFAFC'),
+          borderRadius: pw.BorderRadius.circular(7),
+          border: pw.Border.all(color: color, width: 0.8),
+        ),
+        child: pw.Column(
+          children: [
+            arabicPdfText(
+              label,
+              fonts,
+              fontSize: 9,
+              bold: true,
+              color: color,
+              textAlign: pw.TextAlign.center,
+            ),
+            pw.SizedBox(height: 3),
+            arabicPdfText(
+              value,
+              fonts,
+              fontSize: 15,
+              bold: true,
+              textAlign: pw.TextAlign.center,
+            ),
+          ],
+        ),
+      );
+
+  pw.Widget _resultsTable(
+    ArabicPdfFonts fonts,
+    List<_PdfResultRow> rows,
+  ) =>
+      pw.Table(
+        border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.45),
+        columnWidths: const {
+          0: pw.FlexColumnWidth(1.1),
+          1: pw.FlexColumnWidth(1.7),
+          2: pw.FlexColumnWidth(3.6),
+          3: pw.FlexColumnWidth(3.6),
+        },
+        children: [
+          pw.TableRow(
+            repeat: true,
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#DCD2FF'),
+            ),
+            verticalAlignment: pw.TableCellVerticalAlignment.middle,
+            children: [
+              _headerCell(fonts, 'الحالة'),
+              _headerCell(fonts, 'سبب النتيجة'),
+              _headerCell(fonts, 'تفاصيل الطرف الأول'),
+              _headerCell(fonts, 'تفاصيل الطرف الثاني'),
+            ],
+          ),
+          ...rows.map((row) => _resultTableRow(fonts, row)),
+        ],
+      );
+
+  pw.TableRow _resultTableRow(
+    ArabicPdfFonts fonts,
+    _PdfResultRow row,
+  ) {
+    final matched = row.status == MatchStatus.matched;
+    return pw.TableRow(
+      verticalAlignment: pw.TableCellVerticalAlignment.middle,
+      decoration: pw.BoxDecoration(
+        color: matched
+            ? PdfColor.fromHex('#F2FFFB')
+            : PdfColor.fromHex('#FFF6F8'),
+      ),
+      children: [
+        _bodyCell(
+          fonts,
+          matched ? 'متطابقة' : 'غير متطابقة',
+          bold: true,
+          color: matched
+              ? PdfColor.fromHex('#007D69')
+              : PdfColor.fromHex('#B51F50'),
+          textAlign: pw.TextAlign.center,
+        ),
+        _bodyCell(fonts, row.reason),
+        _transactionCell(fonts, row.left),
+        _transactionCell(fonts, row.right),
+      ],
+    );
+  }
+
+  pw.Widget _headerCell(ArabicPdfFonts fonts, String text) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 7),
+        child: arabicPdfText(
+          text,
+          fonts,
+          fontSize: 8.5,
+          bold: true,
+          textAlign: pw.TextAlign.center,
+        ),
+      );
+
+  pw.Widget _bodyCell(
+    ArabicPdfFonts fonts,
+    String text, {
+    bool bold = false,
+    PdfColor? color,
+    pw.TextAlign textAlign = pw.TextAlign.right,
+  }) =>
+      pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+        child: arabicPdfText(
+          text.isEmpty ? '-' : text,
+          fonts,
+          fontSize: 7.5,
+          bold: bold,
+          color: color,
+          textAlign: textAlign,
+        ),
+      );
+
+  pw.Widget _transactionCell(
+    ArabicPdfFonts fonts,
+    TransactionRecord? record,
+  ) {
+    if (record == null) {
+      return _bodyCell(
+        fonts,
+        'لا توجد عملية مقابلة',
+        textAlign: pw.TextAlign.center,
+      );
+    }
+
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          arabicPdfText(
+            'التاريخ: ${_date(record.date)}',
+            fonts,
+            fontSize: 7.4,
+          ),
+          arabicPdfText(
+            'رقم المستند: ${record.documentNumber?.trim().isEmpty ?? true ? '-' : record.documentNumber}',
+            fonts,
+            fontSize: 7.4,
+          ),
+          arabicPdfText(
+            'الجهة: ${record.sideLabel}',
+            fonts,
+            fontSize: 7.4,
+          ),
+          arabicPdfText(
+            'المبلغ: ${_money(record.amount)}',
+            fonts,
+            fontSize: 7.6,
+            bold: true,
+          ),
+          arabicPdfText(
+            'البيان: ${record.description.trim().isEmpty ? '-' : record.description}',
+            fonts,
+            fontSize: 7.4,
+          ),
+        ],
+      ),
+    );
   }
 
   static const _headers = [
@@ -187,27 +430,22 @@ class ExportService {
         right?.description ?? '',
       ];
 
-  String _date(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
+  String _date(DateTime date) => DateFormat('yyyy-MM-dd', 'en_US').format(date);
+  String _money(double value) =>
+      NumberFormat('#,##0.00', 'en_US').format(value.abs());
   String _safe(String value) => value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 }
 
-class ArabicPdfFonts {
-  const ArabicPdfFonts({required this.regular, required this.bold});
+class _PdfResultRow {
+  const _PdfResultRow({
+    required this.left,
+    required this.right,
+    required this.status,
+    required this.reason,
+  });
 
-  final pw.Font regular;
-  final pw.Font bold;
-}
-
-Future<ArabicPdfFonts> loadArabicPdfFonts() async {
-  final regularData = await rootBundle.load(
-    'assets/fonts/NotoNaskhArabic-Regular.ttf',
-  );
-  final boldData = await rootBundle.load(
-    'assets/fonts/NotoNaskhArabic-Bold.ttf',
-  );
-
-  return ArabicPdfFonts(
-    regular: pw.Font.ttf(ByteData.sublistView(regularData)),
-    bold: pw.Font.ttf(ByteData.sublistView(boldData)),
-  );
+  final TransactionRecord? left;
+  final TransactionRecord? right;
+  final MatchStatus status;
+  final String reason;
 }
