@@ -59,7 +59,9 @@ class ExcelReportStyle {
   static final money = CellStyle(
     horizontalAlign: HorizontalAlign.Center,
     verticalAlign: VerticalAlign.Center,
-    numberFormat: CustomNumericNumFormat('#,##0.00;[Red]-#,##0.00'),
+    numberFormat: CustomNumericNumFormat(
+      formatCode: '#,##0.00;[Red]-#,##0.00',
+    ),
     leftBorder: _thinBorder,
     rightBorder: _thinBorder,
     topBorder: _thinBorder,
@@ -83,7 +85,9 @@ class ExcelReportStyle {
     backgroundColorHex: ExcelColor.fromHexString('#FFFFF1C9'),
     horizontalAlign: HorizontalAlign.Center,
     verticalAlign: VerticalAlign.Center,
-    numberFormat: CustomNumericNumFormat('#,##0.00;[Red]-#,##0.00'),
+    numberFormat: CustomNumericNumFormat(
+      formatCode: '#,##0.00;[Red]-#,##0.00',
+    ),
     leftBorder: _thinBorder,
     rightBorder: _thinBorder,
     topBorder: _thinBorder,
