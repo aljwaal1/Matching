@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../models/transaction_record.dart';
 import 'arabic_pdf_support.dart';
+import 'excel_report_style.dart';
 import 'file_save_service.dart';
 
 class ExportService {
@@ -24,45 +25,80 @@ class ExportService {
     workbook.delete('Sheet1');
 
     final summary = workbook['الملخص'];
-    summary.appendRow(['اسم المطابقة', name].map(TextCellValue.new).toList());
-    summary.appendRow(['الطرف الأول', firstName].map(TextCellValue.new).toList());
-    summary.appendRow(['الطرف الثاني', secondName].map(TextCellValue.new).toList());
-    summary.appendRow(['عدد المتطابق', '${result.matchedCount}'].map(TextCellValue.new).toList());
-    summary.appendRow(['عدد غير المتطابق', '${result.unmatchedCount}'].map(TextCellValue.new).toList());
     summary.appendRow([
-      'تاريخ إنشاء الملف',
-      DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now()),
-    ].map(TextCellValue.new).toList());
+      const TextCellValue('ملخص نتائج المطابقة'),
+      const TextCellValue(''),
+    ]);
+    summary.appendRow([
+      const TextCellValue('اسم المطابقة'),
+      TextCellValue(name),
+    ]);
+    summary.appendRow([
+      const TextCellValue('الطرف الأول'),
+      TextCellValue(firstName),
+    ]);
+    summary.appendRow([
+      const TextCellValue('الطرف الثاني'),
+      TextCellValue(secondName),
+    ]);
+    summary.appendRow([
+      const TextCellValue('عدد العمليات المتطابقة'),
+      IntCellValue(result.matchedCount),
+    ]);
+    summary.appendRow([
+      const TextCellValue('عدد العمليات غير المتطابقة'),
+      IntCellValue(result.unmatchedCount),
+    ]);
+    summary.appendRow([
+      const TextCellValue('تاريخ إنشاء الملف'),
+      TextCellValue(
+        DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now()),
+      ),
+    ]);
+    ExcelReportStyle.styleSummary(summary, rows: summary.maxRows);
 
     final matched = workbook['العمليات المتطابقة'];
     matched.appendRow(_headers.map(TextCellValue.new).toList());
-    for (final pair in result.pairs.where((item) => item.status == MatchStatus.matched)) {
+    for (final pair
+        in result.pairs.where((item) => item.status == MatchStatus.matched)) {
       matched.appendRow(
-        _row(pair.left, pair.right, pair.status, pair.reason)
-            .map(TextCellValue.new)
-            .toList(),
+        _excelRow(
+          left: pair.left,
+          right: pair.right,
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+        ),
       );
     }
+    _styleResultSheet(matched);
 
     final unmatched = workbook['العمليات غير المتطابقة'];
     unmatched.appendRow(_headers.map(TextCellValue.new).toList());
-    for (final pair in result.pairs.where((item) => item.status == MatchStatus.unmatched)) {
+    for (final pair
+        in result.pairs.where((item) => item.status == MatchStatus.unmatched)) {
       unmatched.appendRow(
-        _row(pair.left, pair.right, pair.status, pair.reason)
-            .map(TextCellValue.new)
-            .toList(),
+        _excelRow(
+          left: pair.left,
+          right: pair.right,
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+        ),
       );
     }
     for (final record in result.unmatchedRight) {
       unmatched.appendRow(
-        _row(
-          null,
-          record,
-          MatchStatus.unmatched,
-          'غير موجودة في الطرف الأول',
-        ).map(TextCellValue.new).toList(),
+        _excelRow(
+          left: null,
+          right: record,
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في الطرف الأول',
+          score: null,
+        ),
       );
     }
+    _styleResultSheet(unmatched);
 
     final encoded = workbook.encode();
     if (encoded == null) throw Exception('تعذر إنشاء ملف Excel.');
@@ -89,6 +125,7 @@ class ExportService {
           right: pair.right,
           status: pair.status,
           reason: pair.reason,
+          score: pair.score,
         ),
       ),
       ...result.unmatchedRight.map(
@@ -97,6 +134,7 @@ class ExportService {
           right: record,
           status: MatchStatus.unmatched,
           reason: 'غير موجودة في الطرف الأول',
+          score: null,
         ),
       ),
     ];
@@ -141,6 +179,57 @@ class ExportService {
     );
   }
 
+  void _styleResultSheet(Sheet sheet) {
+    ExcelReportStyle.styleTable(
+      sheet,
+      headerRow: 0,
+      lastRow: sheet.maxRows - 1,
+      columnCount: _headers.length,
+      moneyColumns: const {6, 11},
+      centeredColumns: const {0, 1, 3, 4, 5, 8, 9, 10},
+      widths: const [
+        16,
+        15,
+        34,
+        15,
+        19,
+        13,
+        18,
+        38,
+        15,
+        19,
+        13,
+        18,
+        38,
+      ],
+    );
+  }
+
+  List<CellValue> _excelRow({
+    required TransactionRecord? left,
+    required TransactionRecord? right,
+    required MatchStatus status,
+    required String reason,
+    required double? score,
+  }) =>
+      [
+        TextCellValue(
+          status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
+        ),
+        TextCellValue(score == null ? '-' : '${(score * 100).toStringAsFixed(1)}%'),
+        TextCellValue(reason),
+        TextCellValue(left == null ? '' : _date(left.date)),
+        TextCellValue(left?.documentNumber?.trim() ?? ''),
+        TextCellValue(left?.sideLabel ?? ''),
+        left == null ? const TextCellValue('') : DoubleCellValue(left.amount),
+        TextCellValue(left?.description ?? ''),
+        TextCellValue(right == null ? '' : _date(right.date)),
+        TextCellValue(right?.documentNumber?.trim() ?? ''),
+        TextCellValue(right?.sideLabel ?? ''),
+        right == null ? const TextCellValue('') : DoubleCellValue(right.amount),
+        TextCellValue(right?.description ?? ''),
+      ];
+
   pw.Widget _header(
     ArabicPdfFonts fonts,
     String name,
@@ -179,9 +268,14 @@ class ExportService {
         ),
       );
 
-  pw.Widget _summary(ArabicPdfFonts fonts, ReconciliationResult result) => pw.Row(
+  pw.Widget _summary(ArabicPdfFonts fonts, ReconciliationResult result) =>
+      pw.Row(
         children: [
-          _summaryBox(fonts, 'إجمالي العمليات', result.matchedCount + result.unmatchedCount),
+          _summaryBox(
+            fonts,
+            'إجمالي العمليات',
+            result.matchedCount + result.unmatchedCount,
+          ),
           pw.SizedBox(width: 8),
           _summaryBox(fonts, 'المتطابقة', result.matchedCount),
           pw.SizedBox(width: 8),
@@ -189,7 +283,12 @@ class ExportService {
         ],
       );
 
-  pw.Widget _summaryBox(ArabicPdfFonts fonts, String label, int value) => pw.Expanded(
+  pw.Widget _summaryBox(
+    ArabicPdfFonts fonts,
+    String label,
+    int value,
+  ) =>
+      pw.Expanded(
         child: pw.Container(
           padding: const pw.EdgeInsets.all(9),
           decoration: pw.BoxDecoration(
@@ -199,18 +298,30 @@ class ExportService {
           ),
           child: pw.Column(
             children: [
-              arabicPdfText(label, fonts, bold: true, textAlign: pw.TextAlign.center),
-              arabicPdfText('$value', fonts, fontSize: 15, bold: true, textAlign: pw.TextAlign.center),
+              arabicPdfText(
+                label,
+                fonts,
+                bold: true,
+                textAlign: pw.TextAlign.center,
+              ),
+              arabicPdfText(
+                '$value',
+                fonts,
+                fontSize: 15,
+                bold: true,
+                textAlign: pw.TextAlign.center,
+              ),
             ],
           ),
         ),
       );
 
-  pw.Widget _table(ArabicPdfFonts fonts, List<_PdfResultRow> rows) => pw.Table(
+  pw.Widget _table(ArabicPdfFonts fonts, List<_PdfResultRow> rows) =>
+      pw.Table(
         border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.45),
         columnWidths: const {
           0: pw.FlexColumnWidth(1.1),
-          1: pw.FlexColumnWidth(1.8),
+          1: pw.FlexColumnWidth(2.0),
           2: pw.FlexColumnWidth(3.6),
           3: pw.FlexColumnWidth(3.6),
         },
@@ -220,7 +331,7 @@ class ExportService {
             decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCD2FF')),
             children: [
               _cell(fonts, 'الحالة', bold: true, center: true),
-              _cell(fonts, 'سبب النتيجة', bold: true, center: true),
+              _cell(fonts, 'سبب ودرجة المطابقة', bold: true, center: true),
               _cell(fonts, 'تفاصيل الطرف الأول', bold: true, center: true),
               _cell(fonts, 'تفاصيل الطرف الثاني', bold: true, center: true),
             ],
@@ -235,11 +346,16 @@ class ExportService {
               children: [
                 _cell(
                   fonts,
-                  row.status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
+                  row.status == MatchStatus.matched
+                      ? 'متطابقة'
+                      : 'غير متطابقة',
                   bold: true,
                   center: true,
                 ),
-                _cell(fonts, row.reason),
+                _cell(
+                  fonts,
+                  '${row.reason}${row.score == null ? '' : '\nدرجة المطابقة: ${(row.score! * 100).toStringAsFixed(1)}%'}',
+                ),
                 _transaction(fonts, row.left),
                 _transaction(fonts, row.right),
               ],
@@ -266,12 +382,14 @@ class ExportService {
       );
 
   pw.Widget _transaction(ArabicPdfFonts fonts, TransactionRecord? record) {
-    if (record == null) return _cell(fonts, 'لا توجد عملية مقابلة', center: true);
+    if (record == null) {
+      return _cell(fonts, 'لا توجد عملية مقابلة', center: true);
+    }
     final document = record.documentNumber?.trim();
     return _cell(
       fonts,
       'التاريخ: ${_date(record.date)}\n'
-      'المستند: ${document == null || document.isEmpty ? '-' : document}\n'
+      'رقم المرجع أو المستند: ${document == null || document.isEmpty ? '-' : document}\n'
       'الجهة: ${record.sideLabel}\n'
       'المبلغ: ${_money(record.amount)}\n'
       'البيان: ${record.description.trim().isEmpty ? '-' : record.description}',
@@ -280,43 +398,28 @@ class ExportService {
 
   static const _headers = [
     'الحالة',
+    'درجة المطابقة',
     'السبب',
     'تاريخ الطرف الأول',
-    'رقم مستند الطرف الأول',
+    'رقم مرجع أو مستند الطرف الأول',
     'جهة الطرف الأول',
     'مبلغ الطرف الأول',
     'بيان الطرف الأول',
     'تاريخ الطرف الثاني',
-    'رقم مستند الطرف الثاني',
+    'رقم مرجع أو مستند الطرف الثاني',
     'جهة الطرف الثاني',
     'مبلغ الطرف الثاني',
     'بيان الطرف الثاني',
   ];
 
-  List<String> _row(
-    TransactionRecord? left,
-    TransactionRecord? right,
-    MatchStatus status,
-    String reason,
-  ) =>
-      [
-        status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
-        reason,
-        left == null ? '' : _date(left.date),
-        left?.documentNumber ?? '',
-        left?.sideLabel ?? '',
-        left?.amount.toStringAsFixed(2) ?? '',
-        left?.description ?? '',
-        right == null ? '' : _date(right.date),
-        right?.documentNumber ?? '',
-        right?.sideLabel ?? '',
-        right?.amount.toStringAsFixed(2) ?? '',
-        right?.description ?? '',
-      ];
+  String _date(DateTime date) =>
+      DateFormat('yyyy-MM-dd', 'en_US').format(date);
 
-  String _date(DateTime date) => DateFormat('yyyy-MM-dd', 'en_US').format(date);
-  String _money(double value) => NumberFormat('#,##0.00', 'en_US').format(value.abs());
-  String _safe(String value) => value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+  String _money(double value) =>
+      NumberFormat('#,##0.00', 'en_US').format(value.abs());
+
+  String _safe(String value) =>
+      value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
 }
 
 class _PdfResultRow {
@@ -325,10 +428,12 @@ class _PdfResultRow {
     required this.right,
     required this.status,
     required this.reason,
+    required this.score,
   });
 
   final TransactionRecord? left;
   final TransactionRecord? right;
   final MatchStatus status;
   final String reason;
+  final double? score;
 }
