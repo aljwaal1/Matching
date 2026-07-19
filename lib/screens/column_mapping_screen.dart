@@ -24,6 +24,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
   int? _amount;
   int? _debit;
   int? _credit;
+  int? _balance;
   int? _description;
   DirectAmountRule _directAmountRule = DirectAmountRule.unknown;
 
@@ -36,6 +37,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
     _amount = initial?.amount;
     _debit = initial?.debit;
     _credit = initial?.credit;
+    _balance = initial?.balance;
     _description = initial?.description;
     _directAmountRule = initial?.directAmountRule ?? DirectAmountRule.unknown;
   }
@@ -121,6 +123,14 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
                       (value) => setState(() => _description = value),
                     ),
                     _mappingCard(
+                      'الرصيد',
+                      Icons.account_balance_wallet_outlined,
+                      _balance,
+                      false,
+                      (value) => setState(() => _balance = value),
+                      accent: const Color(0xFF8A5A00),
+                    ),
+                    _mappingCard(
                       'المبلغ المباشر',
                       Icons.payments_rounded,
                       _amount,
@@ -185,7 +195,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'راجع الرؤوس والمعاينة، ثم عيّن التاريخ ومصدر المبلغ. اضغط على أي اسم عمود لعرضه كاملًا.',
+                'راجع الرؤوس والمعاينة، ثم عيّن التاريخ ومصدر المبلغ وعمود الرصيد إن وجد. اضغط على أي اسم عمود لعرضه كاملًا.',
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -383,6 +393,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
         amount: _amount,
         debit: _debit,
         credit: _credit,
+        balance: _balance,
         description: _description,
         directAmountRule: _directAmountRule,
       ),

@@ -13,11 +13,19 @@ class BankReconciliationScreen extends StatefulWidget {
     required this.firstName,
     required this.secondName,
     required this.result,
+    this.initialBookBalance,
+    this.initialBankBalance,
+    this.bookBalanceRowNumber,
+    this.bankBalanceRowNumber,
   });
 
   final String firstName;
   final String secondName;
   final ReconciliationResult result;
+  final double? initialBookBalance;
+  final double? initialBankBalance;
+  final int? bookBalanceRowNumber;
+  final int? bankBalanceRowNumber;
 
   @override
   State<BankReconciliationScreen> createState() =>
@@ -40,6 +48,12 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   void initState() {
     super.initState();
     _accountController = TextEditingController(text: widget.secondName);
+    if (widget.initialBookBalance != null) {
+      _bookController.text = widget.initialBookBalance!.toStringAsFixed(2);
+    }
+    if (widget.initialBankBalance != null) {
+      _bankController.text = widget.initialBankBalance!.toStringAsFixed(2);
+    }
   }
 
   @override
@@ -210,9 +224,13 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
                     decimal: true,
                     signed: true,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'الرصيد حسب كشف البنك',
-                    prefixIcon: Icon(Icons.receipt_long_rounded),
+                    prefixIcon: const Icon(Icons.receipt_long_rounded),
+                    helperText: widget.initialBankBalance == null
+                        ? 'لم يُكتشف رصيد تلقائيًا؛ أدخله يدويًا.'
+                        : 'مكتشف تلقائيًا من الصف ${widget.bankBalanceRowNumber ?? '-'} ويمكن تعديله.',
+                    helperMaxLines: 2,
                   ),
                 ),
                 TextField(
@@ -221,9 +239,13 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
                     decimal: true,
                     signed: true,
                   ),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'الرصيد حسب دفاتر الشركة',
-                    prefixIcon: Icon(Icons.menu_book_rounded),
+                    prefixIcon: const Icon(Icons.menu_book_rounded),
+                    helperText: widget.initialBookBalance == null
+                        ? 'لم يُكتشف رصيد تلقائيًا؛ أدخله يدويًا.'
+                        : 'مكتشف تلقائيًا من الصف ${widget.bookBalanceRowNumber ?? '-'} ويمكن تعديله.',
+                    helperMaxLines: 2,
                   ),
                 ),
               ];

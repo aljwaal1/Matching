@@ -30,6 +30,7 @@ class ColumnMapping {
     this.amount,
     this.debit,
     this.credit,
+    this.balance,
     this.description,
     this.directAmountRule = DirectAmountRule.unknown,
   });
@@ -39,6 +40,7 @@ class ColumnMapping {
   final int? amount;
   final int? debit;
   final int? credit;
+  final int? balance;
   final int? description;
   final DirectAmountRule directAmountRule;
 
@@ -79,12 +81,16 @@ class ImportedStatement {
     required this.fingerprint,
     required this.records,
     required this.skippedRows,
+    this.detectedBalance,
+    this.balanceRowNumber,
   });
 
   final String fileName;
   final String fingerprint;
   final List<TransactionRecord> records;
   final List<SkippedRow> skippedRows;
+  final double? detectedBalance;
+  final int? balanceRowNumber;
 }
 
 class FileImportService {
@@ -224,6 +230,7 @@ class FileImportService {
                 amount: amount,
                 debit: debit,
                 credit: credit,
+                balance: balance,
                 description: _findBest(headers, _descriptionNames),
               )
             : null;
@@ -246,6 +253,7 @@ class FileImportService {
       throw const FormatException('اختر عمود مبلغ أو مدين أو دائن.');
     }
 
+    final detectedBalance = _detectClosingBalance(prepared, mapping);
     final records = <TransactionRecord>[];
     final skipped = <SkippedRow>[];
 
@@ -323,7 +331,42 @@ class FileImportService {
       fingerprint: prepared.fingerprint,
       records: List.unmodifiable(records),
       skippedRows: List.unmodifiable(skipped),
+      detectedBalance: detectedBalance?.value,
+      balanceRowNumber: detectedBalance?.rowNumber,
     );
+  }
+
+
+  _DetectedBalance? _detectClosingBalance(
+    PreparedStatement prepared,
+    ColumnMapping mapping,
+  ) {
+    final balanceColumn = mapping.balance;
+    if (balanceColumn == null) return null;
+
+    _DetectedBalance? selected;
+    for (var index = 0; index < prepared.rows.length; index++) {
+      final row = prepared.rows[index];
+      final value = _amount(_cell(row, balanceColumn));
+      if (value == null) continue;
+      final date = _date(_cell(row, mapping.date));
+      final candidate = _DetectedBalance(
+        value: value,
+        rowNumber: prepared.headerRowNumber + index + 1,
+        date: date,
+      );
+
+      if (selected == null ||
+          (candidate.date != null && selected.date == null) ||
+          (candidate.date != null &&
+              selected.date != null &&
+              candidate.date!.isAfter(selected.date!)) ||
+          (candidate.date == selected.date &&
+              candidate.rowNumber > selected.rowNumber)) {
+        selected = candidate;
+      }
+    }
+    return selected;
   }
 
   List<List<dynamic>> _readXlsx(Uint8List bytes) {
@@ -749,4 +792,17 @@ class FileImportService {
     }
     return hash.toRadixString(16);
   }
+}
+
+
+class _DetectedBalance {
+  const _DetectedBalance({
+    required this.value,
+    required this.rowNumber,
+    required this.date,
+  });
+
+  final double value;
+  final int rowNumber;
+  final DateTime? date;
 }

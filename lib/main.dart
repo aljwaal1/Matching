@@ -226,6 +226,7 @@ class _SetupScreenState extends State<SetupScreen> {
           amount: mapping.amount,
           debit: mapping.debit,
           credit: mapping.credit,
+          balance: mapping.balance,
           description: mapping.description,
           directAmountRule: selectedSide,
         );
@@ -237,6 +238,7 @@ class _SetupScreenState extends State<SetupScreen> {
       setState(() => first ? _first = imported : _second = imported);
       _message(
         'تم استيراد ${imported.records.length} عملية من ${file.name}'
+        '${imported.detectedBalance == null ? '' : '، واكتشاف الرصيد ${NumberFormat('#,##0.00', 'en_US').format(imported.detectedBalance)} من الصف ${imported.balanceRowNumber}'}'
         '${imported.skippedRows.isEmpty ? '' : '، وتجاهل ${imported.skippedRows.length} صف'}',
       );
     } on FormatException catch (error) {
@@ -414,6 +416,10 @@ class _SetupScreenState extends State<SetupScreen> {
               firstName: _first!.fileName,
               secondName: _second!.fileName,
               result: result,
+              firstDetectedBalance: _first!.detectedBalance,
+              secondDetectedBalance: _second!.detectedBalance,
+              firstBalanceRowNumber: _first!.balanceRowNumber,
+              secondBalanceRowNumber: _second!.balanceRowNumber,
             ),
           ),
         ),
@@ -508,6 +514,10 @@ class ResultsScreen extends StatefulWidget {
     required this.result,
     this.savedId,
     this.savedName,
+    this.firstDetectedBalance,
+    this.secondDetectedBalance,
+    this.firstBalanceRowNumber,
+    this.secondBalanceRowNumber,
   });
 
   final ReconciliationMode mode;
@@ -516,6 +526,10 @@ class ResultsScreen extends StatefulWidget {
   final ReconciliationResult result;
   final String? savedId;
   final String? savedName;
+  final double? firstDetectedBalance;
+  final double? secondDetectedBalance;
+  final int? firstBalanceRowNumber;
+  final int? secondBalanceRowNumber;
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
@@ -709,6 +723,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
                                                 firstName: widget.firstName,
                                                 secondName: widget.secondName,
                                                 result: widget.result,
+                                                initialBookBalance:
+                                                    widget.firstDetectedBalance,
+                                                initialBankBalance:
+                                                    widget.secondDetectedBalance,
+                                                bookBalanceRowNumber:
+                                                    widget.firstBalanceRowNumber,
+                                                bankBalanceRowNumber:
+                                                    widget.secondBalanceRowNumber,
                                               ),
                                             ),
                                           ),
