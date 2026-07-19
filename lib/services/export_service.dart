@@ -26,31 +26,22 @@ class ExportService {
 
     final summary = workbook['الملخص'];
     summary.appendRow([
-      const TextCellValue('ملخص نتائج المطابقة'),
-      const TextCellValue(''),
+      TextCellValue('ملخص نتائج المطابقة'),
+      TextCellValue(''),
     ]);
+    summary.appendRow([TextCellValue('اسم المطابقة'), TextCellValue(name)]);
+    summary.appendRow([TextCellValue('الطرف الأول'), TextCellValue(firstName)]);
+    summary.appendRow([TextCellValue('الطرف الثاني'), TextCellValue(secondName)]);
     summary.appendRow([
-      const TextCellValue('اسم المطابقة'),
-      TextCellValue(name),
-    ]);
-    summary.appendRow([
-      const TextCellValue('الطرف الأول'),
-      TextCellValue(firstName),
-    ]);
-    summary.appendRow([
-      const TextCellValue('الطرف الثاني'),
-      TextCellValue(secondName),
-    ]);
-    summary.appendRow([
-      const TextCellValue('عدد العمليات المتطابقة'),
+      TextCellValue('عدد العمليات المتطابقة'),
       IntCellValue(result.matchedCount),
     ]);
     summary.appendRow([
-      const TextCellValue('عدد العمليات غير المتطابقة'),
+      TextCellValue('عدد العمليات غير المتطابقة'),
       IntCellValue(result.unmatchedCount),
     ]);
     summary.appendRow([
-      const TextCellValue('تاريخ إنشاء الملف'),
+      TextCellValue('تاريخ إنشاء الملف'),
       TextCellValue(
         DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now()),
       ),
@@ -187,21 +178,7 @@ class ExportService {
       columnCount: _headers.length,
       moneyColumns: const {6, 11},
       centeredColumns: const {0, 1, 3, 4, 5, 8, 9, 10},
-      widths: const [
-        16,
-        15,
-        34,
-        15,
-        19,
-        13,
-        18,
-        38,
-        15,
-        19,
-        13,
-        18,
-        38,
-      ],
+      widths: const [16, 15, 34, 15, 19, 13, 18, 38, 15, 19, 13, 18, 38],
     );
   }
 
@@ -221,12 +198,12 @@ class ExportService {
         TextCellValue(left == null ? '' : _date(left.date)),
         TextCellValue(left?.documentNumber?.trim() ?? ''),
         TextCellValue(left?.sideLabel ?? ''),
-        left == null ? const TextCellValue('') : DoubleCellValue(left.amount),
+        left == null ? TextCellValue('') : DoubleCellValue(left.amount),
         TextCellValue(left?.description ?? ''),
         TextCellValue(right == null ? '' : _date(right.date)),
         TextCellValue(right?.documentNumber?.trim() ?? ''),
         TextCellValue(right?.sideLabel ?? ''),
-        right == null ? const TextCellValue('') : DoubleCellValue(right.amount),
+        right == null ? TextCellValue('') : DoubleCellValue(right.amount),
         TextCellValue(right?.description ?? ''),
       ];
 
