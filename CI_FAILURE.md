@@ -1,6 +1,6 @@
 # فشل بناء تطبيق Matching
 
-Commit: 22ad8827913eb53d4a7f16812de949dd5abb38da
+Commit: 0e82f36b749a4367e25d4209417172a5e06fc800
 
 ## analyze.log
 ```text
@@ -15,6 +15,10 @@ Analyzing Matching...
    info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/screens/bank_reconciliation_screen.dart:786:19 • deprecated_member_use
    info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/screens/column_mapping_screen.dart:244:15 • deprecated_member_use
    info • 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre. Try replacing the use of the deprecated member with the replacement • lib/screens/column_mapping_screen.dart:326:15 • deprecated_member_use
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/bank_reconciliation_excel_builder.dart:64:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/bank_reconciliation_excel_builder.dart:65:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/bank_reconciliation_excel_builder.dart:167:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/bank_reconciliation_excel_builder.dart:170:22 • const_with_non_const
   error • The named parameter 'formatCode' is required, but there's no corresponding argument. Try adding the required argument • lib/services/excel_report_style.dart:62:19 • missing_required_argument
   error • Too many positional arguments: 0 expected, but 1 found. Try removing the extra positional arguments, or specifying the name for named arguments • lib/services/excel_report_style.dart:62:42 • extra_positional_arguments_could_be_named
   error • The named parameter 'formatCode' is required, but there's no corresponding argument. Try adding the required argument • lib/services/excel_report_style.dart:86:19 • missing_required_argument
@@ -30,6 +34,6 @@ Analyzing Matching...
   error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:224:24 • const_with_non_const
   error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:229:25 • const_with_non_const
 
-23 issues found. (ran in 11.9s)
+27 issues found. (ran in 8.4s)
 ```
 
