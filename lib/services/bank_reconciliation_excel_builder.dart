@@ -61,8 +61,8 @@ class BankReconciliationExcelBuilder {
     required List<BankAdjustmentItem> bookItems,
   }) {
     sheet.appendRow([
-      const TextCellValue('تقرير التسوية البنكية'),
-      const TextCellValue(''),
+      TextCellValue('تقرير التسوية البنكية'),
+      TextCellValue(''),
     ]);
     _appendText(sheet, 'الشركة', companyName);
     _appendText(sheet, 'البنك أو الحساب', bankName);
@@ -164,10 +164,10 @@ class BankReconciliationExcelBuilder {
     final totalRow = sheet.maxRows;
     final totalValues = List<CellValue>.filled(
       headers.length,
-      const TextCellValue(''),
+      TextCellValue(''),
       growable: false,
     );
-    totalValues[2] = const TextCellValue('الإجمالي');
+    totalValues[2] = TextCellValue('الإجمالي');
     totalValues[amountColumn] = DoubleCellValue(
       items.fold<double>(
         0,
