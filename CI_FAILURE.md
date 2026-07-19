@@ -1,6 +1,6 @@
 # فشل بناء تطبيق Matching
 
-Commit: ac440c96f2a4aac6d0f0509971a52006522d1bb2
+Commit: 22ad8827913eb53d4a7f16812de949dd5abb38da
 
 ## analyze.log
 ```text
@@ -19,7 +19,17 @@ Analyzing Matching...
   error • Too many positional arguments: 0 expected, but 1 found. Try removing the extra positional arguments, or specifying the name for named arguments • lib/services/excel_report_style.dart:62:42 • extra_positional_arguments_could_be_named
   error • The named parameter 'formatCode' is required, but there's no corresponding argument. Try adding the required argument • lib/services/excel_report_style.dart:86:19 • missing_required_argument
   error • Too many positional arguments: 0 expected, but 1 found. Try removing the extra positional arguments, or specifying the name for named arguments • lib/services/excel_report_style.dart:86:42 • extra_positional_arguments_could_be_named
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:29:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:30:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:33:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:37:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:41:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:45:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:49:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:53:7 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:224:24 • const_with_non_const
+  error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:229:25 • const_with_non_const
 
-13 issues found. (ran in 12.8s)
+23 issues found. (ran in 11.9s)
 ```
 
