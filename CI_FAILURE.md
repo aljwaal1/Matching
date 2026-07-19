@@ -1,6 +1,6 @@
 # فشل بناء تطبيق Matching
 
-Commit: 0e82f36b749a4367e25d4209417172a5e06fc800
+Commit: a2431c4f9227269a74bad0743a27429d4058dd20
 
 ## analyze.log
 ```text
@@ -34,6 +34,6 @@ Analyzing Matching...
   error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:224:24 • const_with_non_const
   error • The constructor being called isn't a const constructor. Try removing 'const' from the constructor invocation • lib/services/export_service.dart:229:25 • const_with_non_const
 
-27 issues found. (ran in 8.4s)
+27 issues found. (ran in 11.7s)
 ```
 
