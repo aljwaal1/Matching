@@ -102,6 +102,16 @@ jobs:
           set -o pipefail
           flutter build apk --release --no-tree-shake-icons 2>&1 | tee build.log
 
+      - name: Verify release signature
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs \
+            build/app/outputs/flutter-apk/app-release.apk | tee signing-cert.txt
+          tr -d ':' < signing-cert.txt | grep -qi \
+            'fdb51cd57d8e3077661dea66dff37b529f47042daa0b7876a438694ca90e5bb7'
+
       - name: Publish failure details
         if: failure()
         shell: bash
@@ -146,5 +156,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Matching-signed-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            signing-cert.txt
           if-no-files-found: error
