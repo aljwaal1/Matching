@@ -60,7 +60,6 @@ jobs:
           rm -f test/widget_test.dart
           sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
-          sed -i 's/android:label="matching"/android:label="مطابقة الحسابات"/' android/app/src/main/AndroidManifest.xml
 
       - name: Get packages
         run: flutter pub get
