@@ -1,0 +1,198 @@
+name: Build Matching APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'apk/**'
+      - 'google-play/Matching.aab'
+      - 'DOWNLOAD_APK.md'
+      - 'CI_FAILURE.md'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: matching-main-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply guarded balance detection upgrade
+        run: python3 tool/run_balance_detection_patch.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Download Arabic PDF fonts
+        run: |
+          mkdir -p assets/fonts
+          curl --fail --location --retry 3 \
+            'https://notofonts.github.io/arabic/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Regular.ttf' \
+            --output assets/fonts/NotoNaskhArabic-Regular.ttf
+          curl --fail --location --retry 3 \
+            'https://notofonts.github.io/arabic/fonts/NotoNaskhArabic/hinted/ttf/NotoNaskhArabic-Bold.ttf' \
+            --output assets/fonts/NotoNaskhArabic-Bold.ttf
+          test -s assets/fonts/NotoNaskhArabic-Regular.ttf
+          test -s assets/fonts/NotoNaskhArabic-Bold.ttf
+
+      - name: Generate Android platform
+        run: flutter create --platforms=android --org com.explapp --project-name matching .
+
+      - name: Configure Android
+        run: |
+          rm -f test/widget_test.dart
+          sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Configure release signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/matching-upload.jks
+          test -s android/app/matching-upload.jks
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=matching-upload.jks"
+          } > android/key.properties
+
+      - name: Verify Android startup dependency
+        shell: bash
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew app:dependencyInsight \
+            --dependency androidx.work:work-runtime \
+            --configuration releaseRuntimeClasspath | tee ../workmanager-dependency.log
+          grep -q 'androidx.work:work-runtime:2.11.2' ../workmanager-dependency.log
+
+      - name: Analyze
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
+
+      - name: Generate Google Play screenshots
+        run: flutter test --update-goldens tool/generate_store_screenshots.dart
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee test.log
+
+      - name: Build release APK
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build apk --release --no-tree-shake-icons 2>&1 | tee build.log
+
+      - name: Build release AAB
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build appbundle --release --no-tree-shake-icons 2>&1 | tee appbundle.log
+
+      - name: Verify release signature
+        shell: bash
+        run: |
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs \
+            build/app/outputs/flutter-apk/app-release.apk | tee signing-cert.txt
+          tr -d ':' < signing-cert.txt | grep -qi \
+            'fdb51cd57d8e3077661dea66dff37b529f47042daa0b7876a438694ca90e5bb7'
+
+      - name: Verify AAB signature
+        shell: bash
+        run: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          jarsigner -verify -verbose -certs "$AAB" | tee aab-signing.txt
+          grep -q 'jar verified.' aab-signing.txt
+          keytool -printcert -jarfile "$AAB" | tee aab-cert.txt
+          tr -d ':' < aab-cert.txt | grep -qi \
+            'fdb51cd57d8e3077661dea66dff37b529f47042daa0b7876a438694ca90e5bb7'
+
+      - name: Publish failure details
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo '# فشل بناء تطبيق Matching'
+            echo
+            echo "Commit: $GITHUB_SHA"
+            echo
+            for file in analyze.log test.log build.log appbundle.log; do
+              if [ -f "$file" ]; then
+                echo "## $file"
+                echo '```text'
+                tail -n 180 "$file"
+                echo '```'
+                echo
+              fi
+            done
+          } > CI_FAILURE.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CI_FAILURE.md
+          git diff --cached --quiet || git commit -m "CI: record Matching build failure"
+          git push
+
+      - name: Publish APK, AAB, and validated source upgrade
+        if: success() && github.event_name != 'pull_request'
+        run: |
+          test -s build/app/outputs/flutter-apk/app-release.apk
+          test -s build/app/outputs/bundle/release/app-release.aab
+          mkdir -p apk
+          cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
+          cp build/app/outputs/bundle/release/app-release.aab google-play/Matching.aab
+          printf '# تحميل تطبيق مطابقة الحسابات\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
+          rm -f CI_FAILURE.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Build Matching APK with automatic balance detection"
+          git push
+
+      - name: Upload signed APK and Play package
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Matching-signed-apk
+          path: |
+            build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
+            signing-cert.txt
+            aab-cert.txt
+            google-play/screenshots/*.png
+          if-no-files-found: error
