@@ -503,26 +503,26 @@ class _SetupScreenState extends State<SetupScreen> {
                   'عند اختلاف رقم المستند مع تطابق باقي البيانات',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                RadioListTile<DocumentMismatchRule>(
-                  value: DocumentMismatchRule.unmatched,
+                RadioGroup<DocumentMismatchRule>(
                   groupValue: selected,
-                  title: const Text('اعتبار العملية غير مطابقة (الافتراضي)'),
                   onChanged: (value) =>
                       setDialogState(() => selected = value!),
-                ),
-                RadioListTile<DocumentMismatchRule>(
-                  value: DocumentMismatchRule.pending,
-                  groupValue: selected,
-                  title: const Text('اعتبارها معلقة للمراجعة'),
-                  onChanged: (value) =>
-                      setDialogState(() => selected = value!),
-                ),
-                RadioListTile<DocumentMismatchRule>(
-                  value: DocumentMismatchRule.matchedWithNote,
-                  groupValue: selected,
-                  title: const Text('اعتبارها مطابقة مع ملاحظة'),
-                  onChanged: (value) =>
-                      setDialogState(() => selected = value!),
+                  child: const Column(
+                    children: [
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.unmatched,
+                        title: Text('اعتبار العملية غير مطابقة (الافتراضي)'),
+                      ),
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.pending,
+                        title: Text('اعتبارها معلقة للمراجعة'),
+                      ),
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.matchedWithNote,
+                        title: Text('اعتبارها مطابقة مع ملاحظة'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
