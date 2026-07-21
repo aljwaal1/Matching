@@ -101,9 +101,6 @@ jobs:
           set -o pipefail
           flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee analyze.log
 
-      - name: Generate Google Play screenshots
-        run: flutter test --update-goldens tool/generate_store_screenshots.dart
-
       - name: Test
         shell: bash
         run: |
