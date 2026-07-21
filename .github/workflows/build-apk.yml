@@ -84,6 +84,16 @@ jobs:
             echo "storeFile=matching-upload.jks"
           } > android/key.properties
 
+      - name: Verify Android startup dependency
+        shell: bash
+        run: |
+          set -o pipefail
+          cd android
+          ./gradlew app:dependencyInsight \
+            --dependency androidx.work:work-runtime \
+            --configuration releaseRuntimeClasspath | tee ../workmanager-dependency.log
+          grep -q 'androidx.work:work-runtime:2.11.2' ../workmanager-dependency.log
+
       - name: Analyze
         shell: bash
         run: |
