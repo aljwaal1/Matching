@@ -13,6 +13,10 @@ class ArchivedReconciliation {
     required this.firstName,
     required this.secondName,
     required this.result,
+    this.firstBalance,
+    this.secondBalance,
+    this.firstBalanceRowNumber,
+    this.secondBalanceRowNumber,
   });
 
   final String id;
@@ -22,6 +26,10 @@ class ArchivedReconciliation {
   final String firstName;
   final String secondName;
   final ReconciliationResult result;
+  final double? firstBalance;
+  final double? secondBalance;
+  final int? firstBalanceRowNumber;
+  final int? secondBalanceRowNumber;
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -30,6 +38,10 @@ class ArchivedReconciliation {
         'createdAt': createdAt.toIso8601String(),
         'firstName': firstName,
         'secondName': secondName,
+        'firstBalance': firstBalance,
+        'secondBalance': secondBalance,
+        'firstBalanceRowNumber': firstBalanceRowNumber,
+        'secondBalanceRowNumber': secondBalanceRowNumber,
         'pairs': result.pairs
             .map((pair) => {
                   'left': _tx(pair.left),
@@ -50,6 +62,10 @@ class ArchivedReconciliation {
         createdAt: DateTime.parse(json['createdAt'] as String),
         firstName: json['firstName'] as String,
         secondName: json['secondName'] as String,
+        firstBalance: (json['firstBalance'] as num?)?.toDouble(),
+        secondBalance: (json['secondBalance'] as num?)?.toDouble(),
+        firstBalanceRowNumber: json['firstBalanceRowNumber'] as int?,
+        secondBalanceRowNumber: json['secondBalanceRowNumber'] as int?,
         result: ReconciliationResult(
           pairs: (json['pairs'] as List).map((value) {
             final map = Map<String, dynamic>.from(value as Map);
@@ -77,6 +93,7 @@ class ArchivedReconciliation {
         'description': item.description,
         'sourceRow': item.sourceRow,
         'side': item.side.name,
+        'balance': item.balance,
       };
 
   static TransactionRecord _fromTx(Map<String, dynamic> map) => TransactionRecord(
@@ -87,6 +104,7 @@ class ArchivedReconciliation {
         description: map['description'] as String? ?? '',
         sourceRow: map['sourceRow'] as int?,
         side: EntrySide.values.byName(map['side'] as String? ?? 'unknown'),
+        balance: (map['balance'] as num?)?.toDouble(),
       );
 }
 

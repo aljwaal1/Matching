@@ -401,22 +401,32 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
   }
 }
 
-class _PreviewList extends StatelessWidget {
+class _PreviewList extends StatefulWidget {
   const _PreviewList({required this.prepared});
 
   final PreparedStatement prepared;
 
   @override
+  State<_PreviewList> createState() => _PreviewListState();
+}
+
+class _PreviewListState extends State<_PreviewList> {
+  bool _expanded = false;
+
+  @override
   Widget build(BuildContext context) {
-    final previewRows = prepared.rows.take(10).toList(growable: false);
+    final prepared = widget.prepared;
+    final previewRows = prepared.rows
+        .take(_expanded ? 10 : 2)
+        .toList(growable: false);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'معاينة أول 10 صفوف',
+            Text(
+              _expanded ? 'معاينة أول 10 صفوف' : 'معاينة أول صفين',
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 5),
@@ -463,6 +473,12 @@ class _PreviewList extends StatelessWidget {
                   }),
                 );
               }),
+            if (prepared.rows.length > 2)
+              TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
+                label: Text(_expanded ? 'إخفاء' : 'عرض المزيد'),
+              ),
           ],
         ),
       ),

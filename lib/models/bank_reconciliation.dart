@@ -261,6 +261,7 @@ Map<String, dynamic> _transactionToJson(TransactionRecord item) => {
       'description': item.description,
       'sourceRow': item.sourceRow,
       'side': item.side.name,
+      'balance': item.balance,
     };
 
 TransactionRecord _transactionFromJson(Map<String, dynamic> map) =>
@@ -272,4 +273,5 @@ TransactionRecord _transactionFromJson(Map<String, dynamic> map) =>
       description: map['description'] as String? ?? '',
       sourceRow: map['sourceRow'] as int?,
       side: EntrySide.values.byName(map['side'] as String? ?? 'unknown'),
+      balance: (map['balance'] as num?)?.toDouble(),
     );

@@ -313,6 +313,7 @@ class FileImportService {
             description: _clean(_cell(row, mapping.description)),
             sourceRow: rowNumber,
             side: side,
+            balance: _amount(_cell(row, mapping.balance)),
           ),
         );
       } catch (error) {

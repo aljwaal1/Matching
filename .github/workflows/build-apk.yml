@@ -3,7 +3,7 @@ name: Build Matching APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, agent/reconciliation-upgrade]
     paths-ignore:
       - 'apk/**'
       - 'DOWNLOAD_APK.md'

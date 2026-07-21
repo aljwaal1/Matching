@@ -18,6 +18,9 @@ class FileSaveService {
     required String extension,
     String? dialogTitle,
   }) async {
+    if (bytes.isEmpty) {
+      throw StateError('تعذر إنشاء التقرير: الملف الناتج فارغ.');
+    }
     final safeName = _safeFileName(fileName, extension);
     final location = await FilePicker.platform.saveFile(
       dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
