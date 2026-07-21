@@ -33,7 +33,7 @@ void main() {
     String fileName,
   ) async {
     tester.view.physicalSize = const Size(1080, 1920);
-    tester.view.devicePixelRatio = 1;
+    tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(MatchingApp(home: screen));
