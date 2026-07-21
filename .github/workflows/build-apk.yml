@@ -111,7 +111,7 @@ jobs:
           git push
 
       - name: Publish APK and validated source upgrade
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
           mkdir -p apk
@@ -123,3 +123,11 @@ jobs:
           git add -A
           git diff --cached --quiet || git commit -m "Build Matching APK with automatic balance detection"
           git push
+
+      - name: Upload verified APK
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Matching-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
