@@ -2,8 +2,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import 'models/transaction_record.dart';
@@ -16,6 +18,7 @@ import 'screens/column_mapping_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  MobileAds.instance.initialize();
   runApp(const MatchingApp());
 }
 
@@ -88,8 +91,44 @@ class MatchingApp extends StatelessWidget {
       );
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  static const _releaseBannerId =
+      'ca-app-pub-3082968903080396/4266917179';
+  static const _testBannerId = 'ca-app-pub-3940256099942544/9214589741';
+  BannerAd? _banner;
+  bool _bannerLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _banner = BannerAd(
+      adUnitId: kReleaseMode ? _releaseBannerId : _testBannerId,
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (_) {
+          if (mounted) setState(() => _bannerLoaded = true);
+        },
+        onAdFailedToLoad: (ad, _) {
+          ad.dispose();
+          _banner = null;
+        },
+      ),
+    )..load();
+  }
+
+  @override
+  void dispose() {
+    _banner?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -154,6 +193,15 @@ class HomeScreen extends StatelessWidget {
             ),
           ],
         ),
+        bottomNavigationBar: _bannerLoaded && _banner != null
+            ? SafeArea(
+                child: SizedBox(
+                  width: _banner!.size.width.toDouble(),
+                  height: _banner!.size.height.toDouble(),
+                  child: Center(child: AdWidget(ad: _banner!)),
+                ),
+              )
+            : null,
       );
 
   void _open(BuildContext context, ReconciliationMode mode) {
