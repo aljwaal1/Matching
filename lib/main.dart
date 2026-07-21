@@ -35,6 +35,7 @@ class MatchingApp extends StatelessWidget {
         locale: const Locale('ar'),
         theme: ThemeData(
           useMaterial3: true,
+          fontFamily: 'NotoNaskhArabic',
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF6D4CFF),
             primary: const Color(0xFF6D4CFF),

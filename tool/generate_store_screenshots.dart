@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,9 +11,20 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
-    final font = FontLoader('Roboto')
-      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf'));
-    await font.load();
+    final arabicFont = FontLoader('NotoNaskhArabic')
+      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf'))
+      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Bold.ttf'));
+    await arabicFont.load();
+
+    final flutterRoot = Platform.environment['FLUTTER_ROOT'];
+    if (flutterRoot != null) {
+      final bytes = await File(
+        '$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      ).readAsBytes();
+      final icons = FontLoader('MaterialIcons')
+        ..addFont(Future.value(ByteData.sublistView(bytes)));
+      await icons.load();
+    }
   });
 
   Future<void> capture(
