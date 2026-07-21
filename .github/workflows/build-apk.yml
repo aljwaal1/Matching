@@ -2,6 +2,8 @@ name: Build Matching APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths-ignore:
@@ -64,6 +66,24 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
+      - name: Configure release signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/app/matching-upload.jks
+          test -s android/app/matching-upload.jks
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=matching-upload.jks"
+          } > android/key.properties
+
       - name: Analyze
         shell: bash
         run: |
@@ -108,7 +128,7 @@ jobs:
           git push
 
       - name: Publish APK and validated source upgrade
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
           mkdir -p apk
@@ -120,3 +140,11 @@ jobs:
           git add -A
           git diff --cached --quiet || git commit -m "Build Matching APK with automatic balance detection"
           git push
+
+      - name: Upload signed APK
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Matching-signed-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
