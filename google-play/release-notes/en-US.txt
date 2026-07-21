@@ -1,0 +1,1 @@
+First Google Play release with customer, supplier, and bank reconciliation, balance detection, archive, and Arabic PDF and Excel reports.

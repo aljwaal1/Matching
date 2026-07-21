@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths-ignore:
       - 'apk/**'
+      - 'google-play/Matching.aab'
       - 'DOWNLOAD_APK.md'
       - 'CI_FAILURE.md'
 
@@ -112,6 +113,12 @@ jobs:
           set -o pipefail
           flutter build apk --release --no-tree-shake-icons 2>&1 | tee build.log
 
+      - name: Build release AAB
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build appbundle --release --no-tree-shake-icons 2>&1 | tee appbundle.log
+
       - name: Verify release signature
         shell: bash
         run: |
@@ -120,6 +127,17 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs \
             build/app/outputs/flutter-apk/app-release.apk | tee signing-cert.txt
           tr -d ':' < signing-cert.txt | grep -qi \
+            'fdb51cd57d8e3077661dea66dff37b529f47042daa0b7876a438694ca90e5bb7'
+
+      - name: Verify AAB signature
+        shell: bash
+        run: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          test -s "$AAB"
+          jarsigner -verify -verbose -certs "$AAB" | tee aab-signing.txt
+          grep -q 'jar verified.' aab-signing.txt
+          keytool -printcert -jarfile "$AAB" | tee aab-cert.txt
+          tr -d ':' < aab-cert.txt | grep -qi \
             'fdb51cd57d8e3077661dea66dff37b529f47042daa0b7876a438694ca90e5bb7'
 
       - name: Publish failure details
@@ -131,7 +149,7 @@ jobs:
             echo
             echo "Commit: $GITHUB_SHA"
             echo
-            for file in analyze.log test.log build.log; do
+            for file in analyze.log test.log build.log appbundle.log; do
               if [ -f "$file" ]; then
                 echo "## $file"
                 echo '```text'
@@ -147,12 +165,14 @@ jobs:
           git diff --cached --quiet || git commit -m "CI: record Matching build failure"
           git push
 
-      - name: Publish APK and validated source upgrade
+      - name: Publish APK, AAB, and validated source upgrade
         if: success() && github.event_name != 'pull_request'
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
+          test -s build/app/outputs/bundle/release/app-release.aab
           mkdir -p apk
           cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
+          cp build/app/outputs/bundle/release/app-release.aab google-play/Matching.aab
           printf '# تحميل تطبيق مطابقة الحسابات\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
           rm -f CI_FAILURE.md
           git config user.name "github-actions[bot]"
@@ -161,12 +181,15 @@ jobs:
           git diff --cached --quiet || git commit -m "Build Matching APK with automatic balance detection"
           git push
 
-      - name: Upload signed APK
+      - name: Upload signed APK and Play package
         if: success() && github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: Matching-signed-apk
           path: |
             build/app/outputs/flutter-apk/app-release.apk
+            build/app/outputs/bundle/release/app-release.aab
             signing-cert.txt
+            aab-cert.txt
+            google-play/screenshots/*.png
           if-no-files-found: error
