@@ -37,6 +37,10 @@ class ExportService {
       IntCellValue(result.matchedCount),
     ]);
     summary.appendRow([
+      TextCellValue('عدد العمليات المعلقة'),
+      IntCellValue(result.pendingCount),
+    ]);
+    summary.appendRow([
       TextCellValue('عدد العمليات غير المتطابقة'),
       IntCellValue(result.unmatchedCount),
     ]);
@@ -63,6 +67,22 @@ class ExportService {
       );
     }
     _styleResultSheet(matched);
+
+    final pending = workbook['العمليات المعلقة'];
+    pending.appendRow(_headers.map(TextCellValue.new).toList());
+    for (final pair
+        in result.pairs.where((item) => item.status == MatchStatus.pending)) {
+      pending.appendRow(
+        _excelRow(
+          left: pair.left,
+          right: pair.right,
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+        ),
+      );
+    }
+    _styleResultSheet(pending);
 
     final unmatched = workbook['العمليات غير المتطابقة'];
     unmatched.appendRow(_headers.map(TextCellValue.new).toList());
@@ -191,9 +211,9 @@ class ExportService {
   }) =>
       [
         TextCellValue(
-          status == MatchStatus.matched ? 'متطابقة' : 'غير متطابقة',
+          _status(status),
         ),
-        TextCellValue(score == null ? '-' : '${(score * 100).toStringAsFixed(1)}%'),
+        TextCellValue(score == null ? '-' : '${score.toStringAsFixed(1)}%'),
         TextCellValue(reason),
         TextCellValue(left == null ? '' : _date(left.date)),
         TextCellValue(left?.documentNumber?.trim() ?? ''),
@@ -251,10 +271,12 @@ class ExportService {
           _summaryBox(
             fonts,
             'إجمالي العمليات',
-            result.matchedCount + result.unmatchedCount,
+            result.matchedCount + result.pendingCount + result.unmatchedCount,
           ),
           pw.SizedBox(width: 8),
           _summaryBox(fonts, 'المتطابقة', result.matchedCount),
+          pw.SizedBox(width: 8),
+          _summaryBox(fonts, 'المعلقة', result.pendingCount),
           pw.SizedBox(width: 8),
           _summaryBox(fonts, 'غير المتطابقة', result.unmatchedCount),
         ],
@@ -318,20 +340,20 @@ class ExportService {
               decoration: pw.BoxDecoration(
                 color: row.status == MatchStatus.matched
                     ? PdfColor.fromHex('#F2FFFB')
-                    : PdfColor.fromHex('#FFF6F8'),
+                    : row.status == MatchStatus.pending
+                        ? PdfColor.fromHex('#FFF9E8')
+                        : PdfColor.fromHex('#FFF6F8'),
               ),
               children: [
                 _cell(
                   fonts,
-                  row.status == MatchStatus.matched
-                      ? 'متطابقة'
-                      : 'غير متطابقة',
+                  _status(row.status),
                   bold: true,
                   center: true,
                 ),
                 _cell(
                   fonts,
-                  '${row.reason}${row.score == null ? '' : '\nدرجة المطابقة: ${(row.score! * 100).toStringAsFixed(1)}%'}',
+                  '${row.reason}${row.score == null ? '' : '\nدرجة المطابقة: ${row.score!.toStringAsFixed(1)}%'}',
                 ),
                 _transaction(fonts, row.left),
                 _transaction(fonts, row.right),
@@ -394,6 +416,12 @@ class ExportService {
 
   String _money(double value) =>
       NumberFormat('#,##0.00', 'en_US').format(value.abs());
+
+  String _status(MatchStatus status) => switch (status) {
+        MatchStatus.matched => 'متطابقة',
+        MatchStatus.pending => 'معلقة للمراجعة',
+        MatchStatus.unmatched => 'غير متطابقة',
+      };
 
   String _safe(String value) =>
       value.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');

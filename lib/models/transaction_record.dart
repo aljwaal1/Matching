@@ -1,4 +1,6 @@
-enum MatchStatus { matched, unmatched }
+enum MatchStatus { matched, pending, unmatched }
+
+enum DocumentMismatchRule { unmatched, pending, matchedWithNote }
 
 enum EntrySide { debit, credit, unknown }
 
@@ -13,6 +15,7 @@ class TransactionRecord {
     this.description = '',
     this.sourceRow,
     this.side = EntrySide.unknown,
+    this.balance,
   });
 
   final String id;
@@ -22,6 +25,7 @@ class TransactionRecord {
   final String description;
   final int? sourceRow;
   final EntrySide side;
+  final double? balance;
 
   String get normalizedDocumentNumber => (documentNumber ?? '')
       .trim()
@@ -62,6 +66,8 @@ class ReconciliationResult {
 
   int get matchedCount =>
       pairs.where((pair) => pair.status == MatchStatus.matched).length;
+  int get pendingCount =>
+      pairs.where((pair) => pair.status == MatchStatus.pending).length;
   int get unmatchedCount =>
       pairs.where((pair) => pair.status == MatchStatus.unmatched).length +
       unmatchedRight.length;

@@ -5,11 +5,13 @@ class ReconciliationSettings {
     this.allowedDateDifferenceDays = 3,
     this.amountTolerance = 0.01,
     this.mode = ReconciliationMode.parties,
+    this.documentMismatchRule = DocumentMismatchRule.unmatched,
   });
 
   final int allowedDateDifferenceDays;
   final double amountTolerance;
   final ReconciliationMode mode;
+  final DocumentMismatchRule documentMismatchRule;
 
   bool get requireOppositeEntrySides => mode == ReconciliationMode.parties;
 }
@@ -63,7 +65,7 @@ class ReconciliationEngine {
         settings,
       );
       if (decision.index != null &&
-          decision.pair.status == MatchStatus.matched) {
+          decision.pair.status != MatchStatus.unmatched) {
         used.add(decision.index!);
       }
       pairs.add(decision.pair);
@@ -118,7 +120,7 @@ class ReconciliationEngine {
     MatchPair? bestRejection;
     for (final candidate in candidates) {
       final scored = _score(left, candidate.record, settings);
-      if (scored.status == MatchStatus.matched) {
+      if (scored.status != MatchStatus.unmatched) {
         if (bestMatch == null || scored.score > bestMatch.score) {
           bestMatch = scored;
           bestIndex = candidate.index;
@@ -182,13 +184,32 @@ class ReconciliationEngine {
     final rightDocument = right.normalizedDocumentNumber;
     final bothHaveDocuments =
         leftDocument.isNotEmpty && rightDocument.isNotEmpty;
-    if (bothHaveDocuments && leftDocument != rightDocument) {
-      return _no(left, right, 'رقم المستند مختلف', 6);
-    }
-
     final dateDifference = left.date.difference(right.date).inDays.abs();
     if (dateDifference > settings.allowedDateDifferenceDays) {
       return _no(left, right, 'فرق التاريخ أكبر من المسموح', 5);
+    }
+
+    if (settings.mode == ReconciliationMode.parties &&
+        bothHaveDocuments &&
+        leftDocument != rightDocument) {
+      return switch (settings.documentMismatchRule) {
+        DocumentMismatchRule.unmatched =>
+          _no(left, right, 'اختلاف رقم المستند', 6),
+        DocumentMismatchRule.pending => MatchPair(
+            left: left,
+            right: right,
+            status: MatchStatus.pending,
+            reason: 'اختلاف رقم المستند — معلقة للمراجعة',
+            score: 80,
+          ),
+        DocumentMismatchRule.matchedWithNote => MatchPair(
+            left: left,
+            right: right,
+            status: MatchStatus.matched,
+            reason: 'مطابقة مع ملاحظة: اختلاف رقم المستند',
+            score: 80,
+          ),
+      };
     }
 
     final reason = bothHaveDocuments

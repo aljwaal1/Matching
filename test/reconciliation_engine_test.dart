@@ -84,13 +84,36 @@ void main() {
     expect(result.matchedCount, 0);
   });
 
-  test('يرفض اختلاف رقم المستند عند وجوده في الطرفين', () {
+  test('لا يطبق قاعدة اختلاف رقم المستند على مطابقة البنك', () {
     final result = engine.reconcile(
       left: [tx('l', '2026-01-01', 100, doc: 'A1')],
       right: [tx('r', '2026-01-01', 100, doc: 'B1')],
       settings: const ReconciliationSettings(mode: ReconciliationMode.bank),
     );
+    expect(result.matchedCount, 1);
+  });
+
+  test('يرفض اختلاف رقم المستند افتراضياً في مطابقة الأطراف', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1', side: EntrySide.debit)],
+      right: [tx('r', '2026-01-01', 100, doc: 'B1', side: EntrySide.credit)],
+      settings: const ReconciliationSettings(mode: ReconciliationMode.parties),
+    );
     expect(result.matchedCount, 0);
+    expect(result.pairs.single.reason, 'اختلاف رقم المستند');
+  });
+
+  test('يعلق اختلاف رقم المستند للمراجعة حسب اختيار المستخدم', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1', side: EntrySide.debit)],
+      right: [tx('r', '2026-01-01', 100, doc: 'B1', side: EntrySide.credit)],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.parties,
+        documentMismatchRule: DocumentMismatchRule.pending,
+      ),
+    );
+    expect(result.pendingCount, 1);
+    expect(result.unmatchedRight, isEmpty);
   });
 
   test('لا يستخدم العملية المقابلة أكثر من مرة', () {

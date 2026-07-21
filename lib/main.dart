@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import 'models/transaction_record.dart';
@@ -97,6 +98,19 @@ class HomeScreen extends StatelessWidget {
           centerTitle: true,
           actions: [
             IconButton(
+              tooltip: 'الدعم والملاحظات',
+              icon: const Icon(Icons.support_agent_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: SupportScreen(),
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
               tooltip: 'الأرشيف',
               icon: const Icon(Icons.inventory_2_outlined),
               onPressed: () => Navigator.push(
@@ -155,6 +169,38 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+class SupportScreen extends StatelessWidget {
+  const SupportScreen({super.key});
+
+  static const _channel = MethodChannel('matching/support');
+
+  Future<void> _openEmail(BuildContext context) async {
+    try {
+      await _channel.invokeMethod<void>('openEmail');
+    } on PlatformException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'تعذر فتح تطبيق البريد الإلكتروني.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('الدعم والملاحظات')),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: FilledButton.icon(
+              onPressed: () => _openEmail(context),
+              icon: const Icon(Icons.email_outlined),
+              label: const Text('إرسال الملاحظات عبر البريد الإلكتروني'),
+            ),
+          ),
+        ),
+      );
+}
+
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key, required this.mode});
 
@@ -170,6 +216,7 @@ class _SetupScreenState extends State<SetupScreen> {
   ImportedStatement? _second;
   bool _busy = false;
   int _days = 3;
+  DocumentMismatchRule _documentMismatchRule = DocumentMismatchRule.unmatched;
 
   String get title => widget.mode == ReconciliationMode.bank
       ? 'مطابقة كشف البنك'
@@ -392,6 +439,12 @@ class _SetupScreenState extends State<SetupScreen> {
       return;
     }
 
+    if (widget.mode == ReconciliationMode.parties) {
+      final rule = await _askMatchingRules();
+      if (rule == null) return;
+      _documentMismatchRule = rule;
+    }
+
     setState(() => _busy = true);
     try {
       final left = _first!.records;
@@ -399,6 +452,7 @@ class _SetupScreenState extends State<SetupScreen> {
       final settings = ReconciliationSettings(
         allowedDateDifferenceDays: _days,
         mode: widget.mode,
+        documentMismatchRule: _documentMismatchRule,
       );
       final result = const ReconciliationEngine().reconcile(
         left: left,
@@ -429,6 +483,63 @@ class _SetupScreenState extends State<SetupScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<DocumentMismatchRule?> _askMatchingRules() async {
+    var selected = _documentMismatchRule;
+    return showDialog<DocumentMismatchRule>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('قواعد المطابقة'),
+          content: SizedBox(
+            width: 480,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'عند اختلاف رقم المستند مع تطابق باقي البيانات',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                RadioGroup<DocumentMismatchRule>(
+                  groupValue: selected,
+                  onChanged: (value) =>
+                      setDialogState(() => selected = value!),
+                  child: const Column(
+                    children: [
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.unmatched,
+                        title: Text('اعتبار العملية غير مطابقة (الافتراضي)'),
+                      ),
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.pending,
+                        title: Text('اعتبارها معلقة للمراجعة'),
+                      ),
+                      RadioListTile<DocumentMismatchRule>(
+                        value: DocumentMismatchRule.matchedWithNote,
+                        title: Text('اعتبارها مطابقة مع ملاحظة'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, selected),
+              child: const Text('متابعة'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _message(String text) {
@@ -542,6 +653,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   String? _savedId;
   String? _savedName;
   bool _showMatched = true;
+  bool _showPending = true;
   bool _showUnmatched = true;
 
   @override
@@ -594,6 +706,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
           firstName: widget.firstName,
           secondName: widget.secondName,
           result: widget.result,
+          firstBalance: widget.firstDetectedBalance,
+          secondBalance: widget.secondDetectedBalance,
+          firstBalanceRowNumber: widget.firstBalanceRowNumber,
+          secondBalanceRowNumber: widget.secondBalanceRowNumber,
         ),
       );
       if (!mounted) return;
@@ -667,6 +783,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         .where(
           (row) =>
               (row.status == MatchStatus.matched && _showMatched) ||
+              (row.status == MatchStatus.pending && _showPending) ||
               (row.status == MatchStatus.unmatched && _showUnmatched),
         )
         .toList(growable: false);
@@ -691,6 +808,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                         const SizedBox(height: 8),
                         Text(
                           'متطابقة: ${widget.result.matchedCount} — '
+                          'معلقة: ${widget.result.pendingCount} — '
                           'غير متطابقة: ${widget.result.unmatchedCount}',
                         ),
                         Wrap(
@@ -703,6 +821,12 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               selected: _showMatched,
                               onSelected: (value) =>
                                   setState(() => _showMatched = value),
+                            ),
+                            FilterChip(
+                              label: const Text('المعلقة'),
+                              selected: _showPending,
+                              onSelected: (value) =>
+                                  setState(() => _showPending = value),
                             ),
                             FilterChip(
                               label: const Text('غير المتطابقة'),
@@ -915,6 +1039,10 @@ class _ArchiveListScreenState extends State<ArchiveListScreen> {
                               result: item.result,
                               savedId: item.id,
                               savedName: item.name,
+                              firstDetectedBalance: item.firstBalance,
+                              secondDetectedBalance: item.secondBalance,
+                              firstBalanceRowNumber: item.firstBalanceRowNumber,
+                              secondBalanceRowNumber: item.secondBalanceRowNumber,
                             ),
                           ),
                         ),
@@ -952,12 +1080,15 @@ class _ResultCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final matched = row.status == MatchStatus.matched;
+    final pending = row.status == MatchStatus.pending;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: matched
             ? const Color(0xFFDCF5E8)
-            : const Color(0xFFFFE1E1),
+            : pending
+                ? const Color(0xFFFFF1C9)
+                : const Color(0xFFFFE1E1),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -981,13 +1112,12 @@ class _ResultCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text(
-            '${DateFormat('yyyy/MM/dd').format(item.date)} — '
-            '${item.amount.toStringAsFixed(2)} — ${item.sideLabel}',
-          ),
-          if ((item.documentNumber ?? '').isNotEmpty)
-            Text('المستند: ${item.documentNumber}'),
-          if (item.description.isNotEmpty) Text(item.description),
+          Text('التاريخ: ${DateFormat('yyyy/MM/dd').format(item.date)}'),
+          Text('رقم المستند: ${item.documentNumber?.trim().isNotEmpty == true ? item.documentNumber : '-'}'),
+          Text('البيان: ${item.description.trim().isEmpty ? '-' : item.description}'),
+          Text('المدين: ${item.side == EntrySide.debit ? item.amount.toStringAsFixed(2) : '0.00'}'),
+          Text('الدائن: ${item.side == EntrySide.credit ? item.amount.toStringAsFixed(2) : '0.00'}'),
+          Text('الرصيد: ${item.balance?.toStringAsFixed(2) ?? '-'}'),
         ],
       );
 }
