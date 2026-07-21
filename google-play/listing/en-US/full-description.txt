@@ -1,0 +1,16 @@
+matching is an Arabic-first accounting utility that helps accountants and businesses compare statements and identify differences clearly.
+
+Import two statements in XLSX, CSV, TSV, TXT, or text-based PDF format, map their columns, and reconcile entries using document number, amount, and date.
+
+Key features:
+
+• Customer and supplier reconciliation with debit and credit validation.
+• Bank statement matching and bank reconciliation preparation.
+• Flexible rules for different document numbers.
+• Automatic balance detection with manual adjustment.
+• Clear matched, pending, and unmatched results with reasons.
+• Complete details for both sides, including date, document number, description, debit, credit, and balance.
+• Organized PDF and Excel exports.
+• Local archive that reopens and re-exports saved results without recalculating.
+
+Your imported files and reconciliation results are processed locally on your device. No account is required. The single home-screen banner requires an internet connection; ads are not displayed in reconciliation, reports, exports, or the archive.

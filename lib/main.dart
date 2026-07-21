@@ -10,20 +10,23 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import 'models/transaction_record.dart';
 import 'services/archive_service.dart';
+import 'services/ad_service.dart';
 import 'services/export_service.dart';
 import 'services/file_import_service.dart';
 import 'services/reconciliation_engine.dart';
 import 'screens/bank_reconciliation_screen.dart';
 import 'screens/column_mapping_screen.dart';
+import 'screens/privacy_policy_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  MobileAds.instance.initialize();
   runApp(const MatchingApp());
 }
 
 class MatchingApp extends StatelessWidget {
-  const MatchingApp({super.key});
+  const MatchingApp({super.key, this.home = const HomeScreen()});
+
+  final Widget home;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -84,15 +87,17 @@ class MatchingApp extends StatelessWidget {
             ),
           ),
         ),
-        home: const Directionality(
+        home: Directionality(
           textDirection: TextDirection.rtl,
-          child: HomeScreen(),
+          child: home,
         ),
       );
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.enableAds = true});
+
+  final bool enableAds;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -108,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.enableAds) _initializeBanner();
+  }
+
+  Future<void> _initializeBanner() async {
+    if (!await AdService.instance.initialize() || !mounted) return;
     _banner = BannerAd(
       adUnitId: kReleaseMode ? _releaseBannerId : _testBannerId,
       size: AdSize.banner,
@@ -136,6 +146,19 @@ class _HomeScreenState extends State<HomeScreen> {
           title: const Text('مطابقة الحسابات'),
           centerTitle: true,
           actions: [
+            IconButton(
+              tooltip: 'سياسة الخصوصية',
+              icon: const Icon(Icons.privacy_tip_outlined),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: PrivacyPolicyScreen(),
+                  ),
+                ),
+              ),
+            ),
             IconButton(
               tooltip: 'الدعم والملاحظات',
               icon: const Icon(Icons.support_agent_outlined),

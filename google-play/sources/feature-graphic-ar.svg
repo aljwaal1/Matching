@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#5A35E8"/><stop offset="0.55" stop-color="#6D4CFF"/><stop offset="1" stop-color="#00AFC2"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="500" fill="url(#bg)"/>
+  <circle cx="90" cy="70" r="150" fill="#fff" opacity="0.06"/>
+  <circle cx="950" cy="455" r="210" fill="#fff" opacity="0.07"/>
+  <g filter="url(#shadow)" transform="translate(90 74)">
+    <rect width="310" height="352" rx="42" fill="#FAF8F5"/>
+    <path d="M58 70h88l38 38v150a28 28 0 0 1-28 28H86a28 28 0 0 1-28-28z" fill="#6D4CFF"/>
+    <path d="M146 70v24a14 14 0 0 0 14 14h24z" fill="#4526CC"/>
+    <path d="M252 70h-44l-38 38v150a28 28 0 0 0 28 28h54z" fill="#00AFC2"/>
+    <g fill="#fff"><rect x="82" y="140" width="66" height="12" rx="6"/><rect x="82" y="172" width="66" height="12" rx="6"/><rect x="190" y="140" width="44" height="12" rx="6"/><rect x="190" y="172" width="44" height="12" rx="6"/></g>
+    <path d="M112 248l34 34 66-70" fill="none" stroke="#fff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M112 248l34 34 66-70" fill="none" stroke="#FF8500" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Noto Naskh Arabic, DejaVu Sans" direction="rtl">
+    <text x="710" y="185" font-size="52" font-weight="700">مطابقة الحسابات</text>
+    <text x="710" y="265" font-size="32">نتائج واضحة وتقارير منظمة</text>
+    <text x="710" y="330" font-size="26" opacity="0.9">عملاء  •  موردون  •  بنوك</text>
+  </g>
+</svg>
