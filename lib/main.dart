@@ -36,6 +36,7 @@ class MatchingApp extends StatelessWidget {
         theme: ThemeData(
           useMaterial3: true,
           fontFamily: 'NotoNaskhArabic',
+          fontFamilyFallback: const ['Roboto'],
           colorScheme: ColorScheme.fromSeed(
             seedColor: const Color(0xFF6D4CFF),
             primary: const Color(0xFF6D4CFF),
@@ -67,7 +68,11 @@ class MatchingApp extends StatelessWidget {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
-              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontFamily: 'NotoNaskhArabic',
+                fontFamilyFallback: ['Roboto'],
+              ),
             ),
           ),
           inputDecorationTheme: InputDecorationTheme(

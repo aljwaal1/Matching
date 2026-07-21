@@ -12,9 +12,18 @@ void main() {
 
   setUpAll(() async {
     final arabicFont = FontLoader('NotoNaskhArabic')
-      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf'))
-      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Bold.ttf'));
+      ..addFont(rootBundle.load('assets/fonts/NotoNaskhArabic-Regular.ttf'));
     await arabicFont.load();
+
+    final latinFont = File(
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    );
+    if (latinFont.existsSync()) {
+      final bytes = await latinFont.readAsBytes();
+      final roboto = FontLoader('Roboto')
+        ..addFont(Future.value(ByteData.sublistView(bytes)));
+      await roboto.load();
+    }
 
     final flutterRoot = Platform.environment['FLUTTER_ROOT'];
     if (flutterRoot != null) {
