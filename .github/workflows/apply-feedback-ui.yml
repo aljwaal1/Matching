@@ -13,12 +13,14 @@ jobs:
     if: github.head_ref == 'agent/fix-report-saving' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-        with:
-          ref: agent/fix-report-saving
-          fetch-depth: 0
-          show-progress: false
+      - name: Clone branch quietly
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf ./* ./.??* 2>/dev/null || true
+          git clone --quiet --branch agent/fix-report-saving \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
 
       - name: Apply feedback UI patch
         run: python3 .github/scripts/apply_feedback_ui.py
