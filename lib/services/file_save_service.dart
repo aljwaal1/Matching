@@ -40,24 +40,56 @@ class FileSaveService {
       }
     }
 
-    // عند تمرير bytes يقوم file_picker بإنشاء الملف وكتابته على الهاتف.
-    // لا نعيد فتح الملف وكتابته مرة ثانية؛ لأن ذلك قد يصفر الملف عند بعض
-    // مزودي المستندات، كما أنه يحجب واجهة أندرويد عند التقارير الكبيرة.
-    final location = await FilePicker.platform.saveFile(
-      dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
-      fileName: safeName,
-      type: FileType.custom,
-      allowedExtensions: [extension],
-      bytes: bytes,
-    );
+    final SavedReport? saved;
+    if (!kIsWeb && Platform.isAndroid) {
+      saved = await _createAndWriteOnAndroid(
+        bytes: bytes,
+        fileName: safeName,
+        extension: extension,
+      );
+    } else {
+      final location = await FilePicker.platform.saveFile(
+        dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
+        fileName: safeName,
+        type: FileType.custom,
+        allowedExtensions: [extension],
+        bytes: bytes,
+      );
+      if (location == null) return null;
+      await _verifyExisting(location, bytes.length);
+      saved = SavedReport(fileName: safeName, location: location);
+    }
 
-    if (location == null) return null;
-    await _verifyExisting(location, bytes.length);
-    final remembered = await preferences.setString(locationKey, location);
+    if (saved == null) return null;
+    final remembered = await preferences.setString(locationKey, saved.location);
     if (!remembered) {
       throw StateError('تم إنشاء الملف، لكن تعذر حفظ موقعه للتحديث اللاحق.');
     }
-    return SavedReport(fileName: safeName, location: location);
+    return saved;
+  }
+
+  Future<SavedReport?> _createAndWriteOnAndroid({
+    required Uint8List bytes,
+    required String fileName,
+    required String extension,
+  }) async {
+    final response = await _channel.invokeMapMethod<String, dynamic>(
+      'createAndWrite',
+      {
+        'bytes': bytes,
+        'fileName': fileName,
+        'mimeType': _mimeType(extension),
+      },
+    );
+    if (response == null) return null;
+
+    final location = response['location'] as String?;
+    final size = (response['size'] as num?)?.toInt() ?? -1;
+    if (location == null || location.trim().isEmpty) {
+      throw StateError('لم يرجع مدير الملفات موقعًا صالحًا للحفظ.');
+    }
+    _ensureExpectedSize(size, bytes.length);
+    return SavedReport(fileName: fileName, location: location);
   }
 
   Future<void> _writeAndVerify(String location, Uint8List bytes) async {
@@ -100,6 +132,15 @@ class FileSaveService {
       );
     }
   }
+
+  String _mimeType(String extension) => switch (extension.toLowerCase()) {
+        'pdf' => 'application/pdf',
+        'xlsx' =>
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'xls' => 'application/vnd.ms-excel',
+        'csv' => 'text/csv',
+        _ => 'application/octet-stream',
+      };
 
   String _locationKey(String fileName) =>
       'saved_report_${base64Url.encode(utf8.encode(fileName))}';

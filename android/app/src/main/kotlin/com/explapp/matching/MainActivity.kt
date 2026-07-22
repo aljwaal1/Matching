@@ -1,5 +1,6 @@
 package com.explapp.matching
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import io.flutter.embedding.android.FlutterActivity
@@ -8,6 +9,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    companion object {
+        private const val CREATE_REPORT_REQUEST_CODE = 47021
+    }
+
+    private var pendingSaveResult: MethodChannel.Result? = null
+    private var pendingSaveBytes: ByteArray? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "matching/support")
@@ -40,28 +48,142 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
             }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "matching/files")
             .setMethodCallHandler { call, result ->
-                val location = call.argument<String>("location")
-                if (location.isNullOrBlank()) {
-                    result.error("INVALID_FILE", "موقع الملف غير صالح", null)
-                    return@setMethodCallHandler
-                }
-
                 when (call.method) {
-                    "writeAndVerify" -> {
-                        val bytes = call.argument<ByteArray>("bytes")
-                        if (bytes == null || bytes.isEmpty()) {
-                            result.error("INVALID_FILE", "بيانات الملف غير صالحة", null)
+                    "createAndWrite" -> {
+                        if (pendingSaveResult != null) {
+                            result.error(
+                                "SAVE_IN_PROGRESS",
+                                "توجد عملية حفظ أخرى قيد التنفيذ.",
+                                null,
+                            )
                             return@setMethodCallHandler
                         }
-                        runFileTask(result) { writeAndVerify(location, bytes) }
+
+                        val bytes = call.argument<ByteArray>("bytes")
+                        val fileName = call.argument<String>("fileName")?.trim()
+                        val mimeType = call.argument<String>("mimeType")?.trim()
+                        if (bytes == null || bytes.isEmpty() || fileName.isNullOrEmpty()) {
+                            result.error("INVALID_FILE", "بيانات الملف أو اسمه غير صالح.", null)
+                            return@setMethodCallHandler
+                        }
+
+                        pendingSaveResult = result
+                        pendingSaveBytes = bytes
+                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = mimeType?.takeIf { it.isNotEmpty() }
+                                ?: "application/octet-stream"
+                            putExtra(Intent.EXTRA_TITLE, fileName)
+                            addFlags(
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                            )
+                        }
+
+                        try {
+                            @Suppress("DEPRECATION")
+                            startActivityForResult(intent, CREATE_REPORT_REQUEST_CODE)
+                        } catch (error: Exception) {
+                            clearPendingSave()
+                            result.error(
+                                "SAVE_DIALOG_FAILED",
+                                error.message ?: "تعذر فتح نافذة حفظ الملف.",
+                                null,
+                            )
+                        }
                     }
 
-                    "verifySize" -> runFileTask(result) { fileSize(location) }
+                    "writeAndVerify", "verifySize" -> {
+                        val location = call.argument<String>("location")
+                        if (location.isNullOrBlank()) {
+                            result.error("INVALID_FILE", "موقع الملف غير صالح", null)
+                            return@setMethodCallHandler
+                        }
+
+                        if (call.method == "writeAndVerify") {
+                            val bytes = call.argument<ByteArray>("bytes")
+                            if (bytes == null || bytes.isEmpty()) {
+                                result.error("INVALID_FILE", "بيانات الملف غير صالحة", null)
+                                return@setMethodCallHandler
+                            }
+                            runFileTask(result) { writeAndVerify(location, bytes) }
+                        } else {
+                            runFileTask(result) { fileSize(location) }
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    @Deprecated("Deprecated in Android SDK, kept for broad device compatibility.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode != CREATE_REPORT_REQUEST_CODE) {
+            super.onActivityResult(requestCode, resultCode, data)
+            return
+        }
+
+        val channelResult = pendingSaveResult ?: return
+        if (resultCode != Activity.RESULT_OK) {
+            clearPendingSave()
+            channelResult.success(null)
+            return
+        }
+
+        val uri = data?.data
+        val bytes = pendingSaveBytes
+        if (uri == null || bytes == null || bytes.isEmpty()) {
+            clearPendingSave()
+            channelResult.error(
+                "INVALID_SAVE_RESULT",
+                "لم يرجع مدير الملفات موقعًا صالحًا للحفظ.",
+                null,
+            )
+            return
+        }
+
+        Thread {
+            try {
+                try {
+                    val takeFlags = ((data?.flags ?: 0) and
+                        (Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+                    contentResolver.takePersistableUriPermission(uri, takeFlags)
+                } catch (_: Exception) {
+                    // بعض مديري الملفات يمنحون الإذن للجلسة فقط.
+                }
+
+                val size = writeAndVerify(uri.toString(), bytes)
+                runOnUiThread {
+                    clearPendingSave()
+                    channelResult.success(
+                        mapOf(
+                            "location" to uri.toString(),
+                            "size" to size,
+                        ),
+                    )
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    clearPendingSave()
+                    channelResult.error(
+                        "FILE_WRITE_FAILED",
+                        error.message ?: "تعذر كتابة الملف.",
+                        null,
+                    )
+                }
+            }
+        }.start()
+    }
+
+    private fun clearPendingSave() {
+        pendingSaveResult = null
+        pendingSaveBytes = null
     }
 
     private fun runFileTask(
@@ -120,7 +242,7 @@ class MainActivity : FlutterActivity() {
             val descriptorSize = contentResolver.openFileDescriptor(uri, "r")?.use {
                 it.statSize
             } ?: -1L
-            if (descriptorSize >= 0L) return descriptorSize
+            if (descriptorSize > 0L) return descriptorSize
 
             return contentResolver.openInputStream(uri).use { stream ->
                 requireNotNull(stream) { "تعذر فتح الملف للتحقق" }
