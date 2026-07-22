@@ -1,0 +1,666 @@
+name: Apply professional feedback UI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'agent/fix-report-saving' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/fix-report-saving
+          fetch-depth: 0
+
+      - name: Patch progress, error, and support integration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          main_path = Path('lib/main.dart')
+          text = main_path.read_text(encoding='utf-8')
+
+          text = text.replace(
+              "import 'screens/privacy_policy_screen.dart';\n",
+              "import 'screens/privacy_policy_screen.dart';\n"
+              "import 'screens/support_screen.dart';\n"
+              "import 'widgets/operation_feedback.dart';\n",
+              1,
+          )
+
+          text, count = re.subn(
+              r"class SupportScreen extends StatelessWidget \{.*?\n\}\n\nclass SetupScreen",
+              "class SetupScreen",
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not remove the old SupportScreen')
+
+          text = text.replace(
+              "  bool _busy = false;\n",
+              "  bool _busy = false;\n"
+              "  String _busyMessage = 'جاري تنفيذ العملية...';\n",
+          )
+
+          pick_method = r'''  Future<void> _pick\(bool first\) async \{.*?\n  \}\n\n  Future<DirectAmountRule\?> _askDirectAmountRule'''
+          pick_replacement = '''  Future<void> _pick(bool first) async {
+            setState(() {
+              _busy = true;
+              _busyMessage = 'جاري فتح مدير الملفات...';
+            });
+            try {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: const ['xlsx', 'csv', 'tsv', 'txt', 'pdf'],
+                allowMultiple: false,
+                withData: kIsWeb,
+              );
+              if (result == null || result.files.isEmpty) return;
+
+              final file = result.files.single;
+              if (mounted) {
+                setState(() => _busyMessage = 'جاري قراءة ملف ${file.name}...');
+              }
+              Uint8List? bytes = file.bytes;
+              if ((bytes == null || bytes.isEmpty) && file.path != null) {
+                bytes = await File(file.path!).readAsBytes();
+              }
+              if (bytes == null || bytes.isEmpty) {
+                throw const FormatException(
+                  'تعذر الوصول إلى بيانات الملف من الجهاز. جرّب اختيار الملف من مجلد آخر.',
+                );
+              }
+
+              if (mounted) {
+                setState(() => _busyMessage = 'جاري تحليل الأعمدة والبيانات...');
+              }
+              final prepared = _importer.prepareBytes(
+                fileName: file.name,
+                bytes: bytes,
+              );
+              bytes = null;
+
+              if (mounted) {
+                setState(() => _busyMessage = 'بانتظار تأكيد أعمدة الكشف...');
+              }
+              var mapping = await _askMapping(
+                prepared,
+                initial: prepared.suggestedMapping,
+                statementLabel: first ? firstStatementLabel : secondStatementLabel,
+              );
+              if (mapping == null) return;
+
+              final usesDirectAmount = mapping.amount != null &&
+                  mapping.debit == null &&
+                  mapping.credit == null;
+              if (widget.mode == ReconciliationMode.parties && usesDirectAmount) {
+                final selectedSide =
+                    await _askDirectAmountRule(file.name, prepared, mapping);
+                if (selectedSide == null) return;
+                mapping = ColumnMapping(
+                  date: mapping.date,
+                  document: mapping.document,
+                  amount: mapping.amount,
+                  debit: mapping.debit,
+                  credit: mapping.credit,
+                  balance: mapping.balance,
+                  description: mapping.description,
+                  directAmountRule: selectedSide,
+                );
+              }
+
+              if (mounted) {
+                setState(() => _busyMessage = 'جاري استيراد العمليات إلى التطبيق...');
+              }
+              final imported = _importer.buildStatement(prepared, mapping);
+
+              if (!mounted) return;
+              setState(() => first ? _first = imported : _second = imported);
+              _message(
+                'تم استيراد ${imported.records.length} عملية من ${file.name}'
+                '${imported.detectedBalance == null ? '' : '، واكتشاف الرصيد ${NumberFormat('#,##0.00', 'en_US').format(imported.detectedBalance)} من الصف ${imported.balanceRowNumber}'}'
+                '${imported.skippedRows.isEmpty ? '' : '، وتجاهل ${imported.skippedRows.length} صف'}',
+              );
+            } on FormatException catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر قراءة الكشف',
+                  error: error,
+                  message: 'تحقق من صيغة الملف ومن وجود بيانات قابلة للقراءة.',
+                );
+              }
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'حدث خطأ أثناء تحميل الكشف',
+                  error: error,
+                  message: 'لم يتم حذف الكشف الذي سبق تحميله، ويمكنك المحاولة مرة أخرى.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          Future<DirectAmountRule?> _askDirectAmountRule'''
+          text, count = re.subn(
+              pick_method,
+              pick_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace SetupScreen._pick')
+
+          match_method = r'''  Future<void> _match\(\) async \{.*?\n  \}\n\n  Future<DocumentMismatchRule\?> _askMatchingRules'''
+          match_replacement = '''  Future<void> _match() async {
+            if (_first == null || _second == null) {
+              _message('اختر الملفين أولاً.');
+              return;
+            }
+
+            final rule = await _askMatchingRules();
+            if (rule == null) return;
+            _documentMismatchRule = rule;
+
+            setState(() {
+              _busy = true;
+              _busyMessage = 'جاري مطابقة العمليات وإعداد النتائج...';
+            });
+            await Future<void>.delayed(Duration.zero);
+            try {
+              final left = _first!.records;
+              final right = _second!.records;
+              final settings = ReconciliationSettings(
+                allowedDateDifferenceDays: _days,
+                mode: widget.mode,
+                documentMismatchRule: _documentMismatchRule,
+              );
+              final result = const ReconciliationEngine().reconcile(
+                left: left,
+                right: right,
+                settings: settings,
+              );
+              if (!mounted) return;
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: widget.mode == ReconciliationMode.bank
+                        ? BankReconciliationScreen(
+                            firstName: _first!.fileName,
+                            secondName: _second!.fileName,
+                            result: result,
+                            documentMismatchRule: _documentMismatchRule,
+                            initialBookBalance: _first!.detectedBalance,
+                            initialBankBalance: _second!.detectedBalance,
+                            bookBalanceRowNumber: _first!.balanceRowNumber,
+                            bankBalanceRowNumber: _second!.balanceRowNumber,
+                          )
+                        : ResultsScreen(
+                            mode: widget.mode,
+                            firstName: _first!.fileName,
+                            secondName: _second!.fileName,
+                            result: result,
+                            firstDetectedBalance: _first!.detectedBalance,
+                            secondDetectedBalance: _second!.detectedBalance,
+                            firstBalanceRowNumber: _first!.balanceRowNumber,
+                            secondBalanceRowNumber: _second!.balanceRowNumber,
+                          ),
+                  ),
+                ),
+              );
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر إكمال المطابقة',
+                  error: error,
+                  message: 'راجع الملفين ثم أعد المحاولة. لم يتم حذف الملفات المحمّلة.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          Future<DocumentMismatchRule?> _askMatchingRules'''
+          text, count = re.subn(
+              match_method,
+              match_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace SetupScreen._match')
+
+          save_method = r'''  Future<void> _save\(\) async \{.*?\n  \}\n\n  Future<void> _doExport'''
+          save_replacement = '''  Future<void> _save() async {
+            final name = await _askName();
+            if (name == null) return;
+
+            setState(() {
+              _busy = true;
+              _busyMessage = 'جاري حفظ النتيجة في الأرشيف...';
+            });
+            try {
+              final id = _savedId ?? '${DateTime.now().microsecondsSinceEpoch}';
+              await _archive.save(
+                ArchivedReconciliation(
+                  id: id,
+                  name: name,
+                  type: widget.mode.name,
+                  createdAt: DateTime.now(),
+                  firstName: widget.firstName,
+                  secondName: widget.secondName,
+                  result: widget.result,
+                  firstBalance: widget.firstDetectedBalance,
+                  secondBalance: widget.secondDetectedBalance,
+                  firstBalanceRowNumber: widget.firstBalanceRowNumber,
+                  secondBalanceRowNumber: widget.secondBalanceRowNumber,
+                ),
+              );
+              if (!mounted) return;
+              setState(() {
+                _savedId = id;
+                _savedName = name;
+              });
+              _message('تم حفظ النتيجة في الأرشيف بنجاح.');
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر حفظ النتيجة',
+                  error: error,
+                  message: 'احتفظ بالصفحة مفتوحة ثم أعد المحاولة.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          Future<void> _doExport'''
+          text, count = re.subn(
+              save_method,
+              save_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace ResultsScreen._save')
+
+          export_method = r'''  Future<void> _doExport\(bool pdf\) async \{.*?\n  \}\n\n  void _message'''
+          export_replacement = '''  Future<void> _doExport(bool pdf) async {
+            final name = _savedName ?? await _askName();
+            if (name == null) return;
+
+            setState(() {
+              _busy = true;
+              _busyMessage = pdf
+                  ? 'جاري إنشاء تقرير PDF وفتح نافذة الحفظ...'
+                  : 'جاري إنشاء تقرير Excel وفتح نافذة الحفظ...';
+            });
+            try {
+              final saved = pdf
+                  ? await _export.exportPdf(
+                      name: name,
+                      firstName: widget.firstName,
+                      secondName: widget.secondName,
+                      result: widget.result,
+                    )
+                  : await _export.exportExcel(
+                      name: name,
+                      firstName: widget.firstName,
+                      secondName: widget.secondName,
+                      result: widget.result,
+                    );
+              if (!mounted) return;
+              if (saved == null) {
+                _message('تم إلغاء حفظ التقرير.');
+              } else {
+                _message('تم حفظ ${pdf ? 'PDF' : 'Excel'} باسم ${saved.fileName}.');
+              }
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر إنشاء أو حفظ التقرير',
+                  error: error,
+                  message: 'تأكد من توفر مساحة تخزين ومن صلاحية مجلد الحفظ.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          void _message'''
+          text, count = re.subn(
+              export_method,
+              export_replacement,
+              text,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace ResultsScreen._doExport')
+
+          old_overlay = '''          if (_busy)
+            const ColoredBox(
+              color: Color(0x44000000),
+              child: Center(child: CircularProgressIndicator()),
+            ),'''
+          new_overlay = '''          if (_busy)
+            OperationStatusOverlay(
+              message: _busyMessage,
+              details: 'قد تستغرق العملية بعض الوقت حسب حجم الملف وعدد العمليات.',
+            ),'''
+          overlay_count = text.count(old_overlay)
+          if overlay_count != 2:
+              raise SystemExit(f'Expected two main overlays, found {overlay_count}')
+          text = text.replace(old_overlay, new_overlay)
+
+          main_path.write_text(text, encoding='utf-8')
+
+          bank_path = Path('lib/screens/bank_reconciliation_screen.dart')
+          bank = bank_path.read_text(encoding='utf-8')
+          bank = bank.replace(
+              "import '../services/bank_reconciliation_service.dart';\n",
+              "import '../services/bank_reconciliation_service.dart';\n"
+              "import '../widgets/operation_feedback.dart';\n",
+              1,
+          )
+          bank = bank.replace(
+              "  bool _busy = false;\n",
+              "  bool _busy = false;\n"
+              "  String _busyMessage = 'جاري تنفيذ العملية...';\n",
+              1,
+          )
+          bank = bank.replace(
+              '''          if (_busy)
+            const Positioned.fill(
+              child: ColoredBox(
+                color: Color(0x44000000),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ),''',
+              '''          if (_busy)
+            OperationStatusOverlay(
+              message: _busyMessage,
+              details: 'قد يستغرق إعداد التقرير وقتًا حسب عدد العمليات.',
+            ),''',
+              1,
+          )
+
+          calculate_method = r'''  Future<void> _calculate\(\) async \{.*?\n  \}\n\n  Future<void> _save'''
+          calculate_replacement = '''  Future<void> _calculate() async {
+            final book = double.tryParse(_bookController.text.replaceAll(',', ''));
+            final bank = double.tryParse(_bankController.text.replaceAll(',', ''));
+            final account = _accountController.text.trim();
+            if (account.isEmpty || book == null || bank == null) {
+              _message('أدخل اسم الحساب والرصيدين بصورة صحيحة.');
+              return;
+            }
+
+            setState(() {
+              _busy = true;
+              _busyMessage = _usePreviousReconciliation
+                  ? 'جاري تحميل البنود السابقة وإعداد التسوية...'
+                  : 'جاري إعداد تقرير التسوية البنكية...';
+            });
+            await Future<void>.delayed(Duration.zero);
+            try {
+              if (widget.initialStatement != null &&
+                  widget.initialStatement!.matchingResult == null) {
+                setState(() {
+                  _statement = widget.initialStatement!.copyWith(
+                    accountName: account,
+                    period: _period,
+                    bookBalance: book,
+                    bankBalance: bank,
+                  );
+                });
+                return;
+              }
+              final previousPending = _usePreviousReconciliation
+                  ? await _archive.pendingFromPrevious(
+                      accountName: account,
+                      beforePeriod: _period,
+                    )
+                  : const <BankAdjustmentItem>[];
+              if (!mounted) return;
+              setState(() {
+                _statement = _service.build(
+                  accountName: account,
+                  period: _period,
+                  bookBalance: book,
+                  bankBalance: bank,
+                  matchingResult: widget.result,
+                  bookSourceName: widget.firstName,
+                  bankSourceName: widget.secondName,
+                  documentMismatchRule: widget.documentMismatchRule,
+                  previousPending: previousPending,
+                );
+              });
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر إعداد التسوية البنكية',
+                  error: error,
+                  message: 'راجع الأرصدة واسم الحساب ثم أعد المحاولة.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          Future<void> _save'''
+          bank, count = re.subn(
+              calculate_method,
+              calculate_replacement,
+              bank,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace bank _calculate')
+
+          bank_save = r'''  Future<void> _save\(BankReconciliationStatement statement\) async \{.*?\n  \}\n\n  Future<void> _loadPreviousPending'''
+          bank_save_replacement = '''  Future<void> _save(BankReconciliationStatement statement) async {
+            setState(() {
+              _busy = true;
+              _busyMessage = 'جاري حفظ التسوية في الأرشيف...';
+            });
+            try {
+              final updated = statement.copyWith(
+                accountName: _accountController.text.trim(),
+                period: _period,
+              );
+              await _archive.save(updated);
+              if (!mounted) return;
+              setState(() => _statement = updated);
+              _message('تم الحفظ في أرشيف التسويات البنكية.');
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر حفظ التسوية',
+                  error: error,
+                  message: 'لم يتم حذف التقرير الحالي، ويمكنك إعادة المحاولة.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          Future<void> _loadPreviousPending'''
+          bank, count = re.subn(
+              bank_save,
+              bank_save_replacement,
+              bank,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace bank _save')
+
+          bank = bank.replace(
+              "    setState(() => _busy = true);\n    try {\n      final pending = await _archive.pendingFromPrevious(",
+              "    setState(() {\n"
+              "      _busy = true;\n"
+              "      _busyMessage = 'جاري استدعاء البنود المعلقة من التسويات السابقة...';\n"
+              "    });\n"
+              "    try {\n"
+              "      final pending = await _archive.pendingFromPrevious(",
+              1,
+          )
+          bank = bank.replace(
+              "    } catch (error) {\n      if (mounted) _message('تعذر استدعاء التسوية السابقة: $error');\n",
+              "    } catch (error) {\n"
+              "      if (mounted) {\n"
+              "        setState(() => _busy = false);\n"
+              "        await showOperationError(\n"
+              "          context,\n"
+              "          title: 'تعذر استدعاء التسوية السابقة',\n"
+              "          error: error,\n"
+              "        );\n"
+              "      }\n",
+              1,
+          )
+
+          open_archive = r'''  Future<void> _openArchive\(\) async \{\n    final items = await _archive.loadAll\(\);\n    if \(!mounted\) return;\n    await showModalBottomSheet<void>\('''
+          open_archive_replacement = '''  Future<void> _openArchive() async {
+            setState(() {
+              _busy = true;
+              _busyMessage = 'جاري تحميل أرشيف التسويات البنكية...';
+            });
+            late final List<BankReconciliationStatement> items;
+            try {
+              items = await _archive.loadAll();
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر فتح أرشيف التسويات',
+                  error: error,
+                );
+              }
+              return;
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+            if (!mounted) return;
+            await showModalBottomSheet<void>('''
+          bank, count = re.subn(
+              open_archive,
+              open_archive_replacement,
+              bank,
+              count=1,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace bank _openArchive start')
+
+          bank_export = r'''  Future<void> _export\(\n    BankReconciliationStatement statement, \{\n    required bool pdf,\n  \}\) async \{.*?\n  \}\n\n  void _message'''
+          bank_export_replacement = '''  Future<void> _export(
+            BankReconciliationStatement statement, {
+            required bool pdf,
+          }) async {
+            setState(() {
+              _busy = true;
+              _busyMessage = pdf
+                  ? 'جاري إنشاء تقرير PDF الشامل وفتح نافذة الحفظ...'
+                  : 'جاري إنشاء تقرير Excel الشامل وفتح نافذة الحفظ...';
+            });
+            try {
+              final companyName = statement.bookSourceName.isEmpty
+                  ? widget.firstName
+                  : statement.bookSourceName;
+              final bankName = statement.accountName.isEmpty
+                  ? (statement.bankSourceName.isEmpty
+                      ? widget.secondName
+                      : statement.bankSourceName)
+                  : statement.accountName;
+              final saved = pdf
+                  ? await _exporter.exportPdf(
+                      companyName: companyName,
+                      bankName: bankName,
+                      statement: statement,
+                    )
+                  : await _exporter.exportExcel(
+                      companyName: companyName,
+                      bankName: bankName,
+                      statement: statement,
+                    );
+              if (!mounted) return;
+              if (saved == null) {
+                _message('تم إلغاء حفظ التقرير.');
+              } else {
+                _message('تم حفظ ${pdf ? 'PDF' : 'Excel'}: ${saved.fileName}');
+              }
+            } catch (error) {
+              if (mounted) {
+                setState(() => _busy = false);
+                await showOperationError(
+                  context,
+                  title: 'تعذر إنشاء أو حفظ تقرير التسوية',
+                  error: error,
+                  message: 'تأكد من توفر مساحة تخزين ومن صلاحية مجلد الحفظ.',
+                );
+              }
+            } finally {
+              if (mounted) setState(() => _busy = false);
+            }
+          }
+
+          void _message'''
+          bank, count = re.subn(
+              bank_export,
+              bank_export_replacement,
+              bank,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit('Could not replace bank _export')
+
+          bank_path.write_text(bank, encoding='utf-8')
+          PY
+
+      - name: Commit patched files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/main.dart lib/screens/bank_reconciliation_screen.dart
+          git diff --cached --check
+          git commit -m "Improve support and operation feedback"
+          git push origin HEAD:agent/fix-report-saving
