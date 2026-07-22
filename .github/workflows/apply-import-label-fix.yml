@@ -91,18 +91,13 @@ jobs:
 
           export_path = Path('lib/services/export_service.dart')
           export = export_path.read_text(encoding='utf-8')
-          replacements = {
-              'الطرف الأول': 'كشف حساب الشركة',
-              'الطرف الثاني': 'كشف حساب العميل أو المورد',
-          }
-          for old, new in replacements.items():
-              export = export.replace(old, new)
+          export = export.replace('الطرف الأول', 'كشف حساب الشركة')
+          export = export.replace('الطرف الثاني', 'كشف حساب العميل أو المورد')
           if 'الطرف الأول' in export or 'الطرف الثاني' in export:
               raise SystemExit('Ambiguous party labels remain in export_service.dart')
           export_path.write_text(export, encoding='utf-8')
           PY
 
-          dart format lib/main.dart lib/services/export_service.dart
           git diff --check
           git diff -- lib/main.dart lib/services/export_service.dart
 
