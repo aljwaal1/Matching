@@ -13,7 +13,7 @@ class BankReconciliationScreen extends StatefulWidget {
     required this.firstName,
     required this.secondName,
     required this.result,
-    this.documentMismatchRule = DocumentMismatchRule.pending,
+    this.documentMismatchRule = DocumentMismatchRule.unmatched,
     this.initialBookBalance,
     this.initialBankBalance,
     this.bookBalanceRowNumber,

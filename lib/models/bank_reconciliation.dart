@@ -185,7 +185,7 @@ class BankReconciliationStatement {
     required this.items,
     this.bookSourceName = '',
     this.bankSourceName = '',
-    this.documentMismatchRule = DocumentMismatchRule.pending,
+    this.documentMismatchRule = DocumentMismatchRule.unmatched,
     this.matchingResult,
   });
 
@@ -270,7 +270,7 @@ class BankReconciliationStatement {
         bankSourceName: json['bankSourceName'] as String? ?? '',
         documentMismatchRule: DocumentMismatchRule.values.byName(
           json['documentMismatchRule'] as String? ??
-              DocumentMismatchRule.pending.name,
+              DocumentMismatchRule.unmatched.name,
         ),
         matchingResult: json['matchingResult'] == null
             ? null

@@ -12,27 +12,15 @@ class BankReconciliationService {
     required ReconciliationResult matchingResult,
     String bookSourceName = '',
     String bankSourceName = '',
-    DocumentMismatchRule documentMismatchRule = DocumentMismatchRule.pending,
+    DocumentMismatchRule documentMismatchRule = DocumentMismatchRule.unmatched,
     List<BankAdjustmentItem> previousPending = const [],
   }) {
     final currentItems = <BankAdjustmentItem>[];
 
     for (final pair in matchingResult.pairs) {
       if (pair.status == MatchStatus.matched) continue;
-      if (pair.status == MatchStatus.pending) {
-        currentItems.add(
-          BankAdjustmentItem(
-            id: 'review-${pair.left.id}',
-            description: pair.reason,
-            amount: pair.left.amount,
-            type: BankDifferenceType.reviewRequired,
-            adjustBankBalance: true,
-            add: true,
-            transaction: pair.left,
-          ),
-        );
-        continue;
-      }
+      // الحالة المعلقة تصنيف في نتيجة المطابقة وليست قيد تسوية محاسبيًا.
+      if (pair.status == MatchStatus.pending) continue;
       currentItems.add(_fromBookTransaction(pair.left));
     }
 
