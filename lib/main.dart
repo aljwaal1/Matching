@@ -298,6 +298,14 @@ class _SetupScreenState extends State<SetupScreen> {
       ? 'إعداد التسوية البنكية'
       : 'مطابقة العملاء والموردين';
 
+  String get firstStatementLabel => widget.mode == ReconciliationMode.bank
+      ? 'دفاتر الشركة'
+      : 'كشف حساب الشركة';
+
+  String get secondStatementLabel => widget.mode == ReconciliationMode.bank
+      ? 'كشف البنك'
+      : 'كشف حساب العميل أو المورد';
+
   Future<void> _pick(bool first) async {
     FilePickerResult? result;
     try {
@@ -305,7 +313,7 @@ class _SetupScreenState extends State<SetupScreen> {
         type: FileType.custom,
         allowedExtensions: const ['xlsx', 'csv', 'tsv', 'txt', 'pdf'],
         allowMultiple: false,
-        withData: true,
+        withData: kIsWeb,
       );
     } catch (error) {
       _message('تعذر فتح مدير الملفات: $error');
@@ -330,10 +338,12 @@ class _SetupScreenState extends State<SetupScreen> {
         fileName: file.name,
         bytes: bytes,
       );
+      // حرر بيانات الملف الخام قبل فتح شاشة تعيين الأعمدة لتقليل الذاكرة.
+      bytes = null;
       var mapping = await _askMapping(
         prepared,
         initial: prepared.suggestedMapping,
-        statementLabel: first ? 'الكشف الأول' : 'الكشف الثاني',
+        statementLabel: first ? firstStatementLabel : secondStatementLabel,
       );
       if (mapping == null) return;
 
@@ -645,14 +655,14 @@ class _SetupScreenState extends State<SetupScreen> {
               children: [
                 _FileCard(
                   number: 1,
-                  label: 'كشف الطرف الأول',
+                  label: firstStatementLabel,
                   statement: _first,
                   onTap: () => _pick(true),
                 ),
                 const SizedBox(height: 12),
                 _FileCard(
                   number: 2,
-                  label: 'كشف الطرف الثاني',
+                  label: secondStatementLabel,
                   statement: _second,
                   onTap: () => _pick(false),
                 ),
@@ -866,7 +876,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
           left: null,
           right: item,
           status: MatchStatus.unmatched,
-          reason: 'غير موجودة في الطرف الأول',
+          reason: widget.mode == ReconciliationMode.bank
+              ? 'غير موجودة في دفاتر الشركة'
+              : 'غير موجودة في كشف حساب الشركة',
         ),
       ),
     ];
