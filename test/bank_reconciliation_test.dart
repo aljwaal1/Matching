@@ -154,7 +154,7 @@ void main() {
     expect(statement.isBalanced, isFalse);
   });
 
-  test('pending document mismatch stays out of adjusted balances', () {
+  test('pending document mismatch remains a classification only', () {
     final left = transaction('book-review', 20, side: EntrySide.debit);
     final right = transaction('bank-review', 20, side: EntrySide.credit);
     final matchingResult = ReconciliationResult(
@@ -178,11 +178,11 @@ void main() {
       documentMismatchRule: DocumentMismatchRule.pending,
     );
 
-    expect(statement.items, hasLength(1));
-    expect(statement.items.single.type, BankDifferenceType.reviewRequired);
+    expect(statement.items, isEmpty);
     expect(statement.adjustedBookBalance, 100);
     expect(statement.adjustedBankBalance, 100);
-    expect(statement.isBalanced, isFalse);
+    expect(statement.isBalanced, isTrue);
+    expect(statement.matchingResult?.pendingCount, 1);
     expect(statement.matchingResult, same(matchingResult));
   });
 

@@ -292,15 +292,7 @@ class _SetupScreenState extends State<SetupScreen> {
   ImportedStatement? _second;
   bool _busy = false;
   int _days = 3;
-  late DocumentMismatchRule _documentMismatchRule;
-
-  @override
-  void initState() {
-    super.initState();
-    _documentMismatchRule = widget.mode == ReconciliationMode.bank
-        ? DocumentMismatchRule.pending
-        : DocumentMismatchRule.unmatched;
-  }
+  DocumentMismatchRule _documentMismatchRule = DocumentMismatchRule.unmatched;
 
   String get title => widget.mode == ReconciliationMode.bank
       ? 'إعداد التسوية البنكية'
@@ -600,25 +592,17 @@ class _SetupScreenState extends State<SetupScreen> {
                   groupValue: selected,
                   onChanged: (value) =>
                       setDialogState(() => selected = value!),
-                  child: Column(
+                  child: const Column(
                     children: [
                       RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.unmatched,
-                        title: Text(
-                          widget.mode == ReconciliationMode.parties
-                              ? 'اعتبار العملية غير مطابقة (الافتراضي)'
-                              : 'اعتبار العملية غير مطابقة',
-                        ),
+                        title: Text('اعتبار العملية غير مطابقة (الافتراضي)'),
                       ),
                       RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.pending,
-                        title: Text(
-                          widget.mode == ReconciliationMode.bank
-                              ? 'اعتبارها معلقة للمراجعة (الافتراضي)'
-                              : 'اعتبارها معلقة للمراجعة',
-                        ),
+                        title: Text('اعتبارها معلقة للمراجعة'),
                       ),
-                      const RadioListTile<DocumentMismatchRule>(
+                      RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.matchedWithNote,
                         title: Text('اعتبارها مطابقة مع ملاحظة'),
                       ),

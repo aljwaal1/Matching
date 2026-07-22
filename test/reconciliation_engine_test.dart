@@ -97,14 +97,11 @@ void main() {
     expect(result.unmatchedRight, isEmpty);
   });
 
-  test('يرفض اختلاف رقم المستند في البنك عند اختيار غير مطابقة', () {
+  test('يرفض اختلاف رقم المستند في البنك افتراضياً', () {
     final result = engine.reconcile(
       left: [tx('l', '2026-01-01', 100, doc: 'A1')],
       right: [tx('r', '2026-01-01', 100, doc: 'B1')],
-      settings: const ReconciliationSettings(
-        mode: ReconciliationMode.bank,
-        documentMismatchRule: DocumentMismatchRule.unmatched,
-      ),
+      settings: const ReconciliationSettings(mode: ReconciliationMode.bank),
     );
     expect(result.matchedCount, 0);
     expect(result.pairs.single.reason, 'اختلاف رقم المستند');
