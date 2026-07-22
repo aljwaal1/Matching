@@ -16,12 +16,25 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                     return@setMethodCallHandler
                 }
-                val intent = Intent(
-                    Intent.ACTION_SENDTO,
-                    Uri.parse("mailto:fastunlocked2017@gmail.com?subject=${Uri.encode("ملاحظات تطبيق مطابقة الحسابات")}"),
-                )
+
+                val subject = call.argument<String>("subject")
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: "ملاحظات تطبيق مطابقة الحسابات"
+                val body = call.argument<String>("body")?.trim().orEmpty()
+                val emailUri = Uri.parse("mailto:fastunlocked2017@gmail.com")
+                    .buildUpon()
+                    .appendQueryParameter("subject", subject)
+                    .appendQueryParameter("body", body)
+                    .build()
+                val intent = Intent(Intent.ACTION_SENDTO, emailUri)
+
                 if (intent.resolveActivity(packageManager) == null) {
-                    result.error("NO_EMAIL_APP", "لا يوجد تطبيق بريد إلكتروني", null)
+                    result.error(
+                        "NO_EMAIL_APP",
+                        "لا يوجد تطبيق بريد إلكتروني مثبت. يمكنك نسخ عنوان الدعم من الصفحة.",
+                        null,
+                    )
                 } else {
                     startActivity(intent)
                     result.success(null)
