@@ -1,16 +1,20 @@
 name: Apply import and label fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/fix-report-saving
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && github.head_ref == 'agent/fix-report-saving'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
