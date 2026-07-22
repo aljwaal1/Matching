@@ -32,85 +32,79 @@ jobs:
           main_path = Path('lib/main.dart')
           text = main_path.read_text(encoding='utf-8')
 
-          title_block = """  String get title => widget.mode == ReconciliationMode.bank
-              ? 'إعداد التسوية البنكية'
-              : 'مطابقة العملاء والموردين';
-          """
-          label_block = """  String get title => widget.mode == ReconciliationMode.bank
-              ? 'إعداد التسوية البنكية'
-              : 'مطابقة العملاء والموردين';
+          if 'String get firstStatementLabel' not in text:
+              marker = "      : 'مطابقة العملاء والموردين';"
+              getters = """      : 'مطابقة العملاء والموردين';
 
             String get firstStatementLabel => widget.mode == ReconciliationMode.bank
-              ? 'دفاتر الشركة'
-              : 'كشف حساب الشركة';
+                ? 'دفاتر الشركة'
+                : 'كشف حساب الشركة';
 
             String get secondStatementLabel => widget.mode == ReconciliationMode.bank
-              ? 'كشف البنك'
-              : 'كشف حساب العميل أو المورد';
-          """
-          if title_block not in text:
-              raise SystemExit('SetupScreen title block was not found')
-          text = text.replace(title_block, label_block, 1)
+                ? 'كشف البنك'
+                : 'كشف حساب العميل أو المورد';"""
+              if marker not in text:
+                  raise SystemExit('Could not locate SetupScreen title marker')
+              text = text.replace(marker, getters, 1)
 
-          replacements = {
-              "        withData: true,": "        withData: kIsWeb,",
-              "        statementLabel: first ? 'الكشف الأول' : 'الكشف الثاني',": "        statementLabel: first ? firstStatementLabel : secondStatementLabel,",
-              "                   label: 'كشف الطرف الأول',": "                   label: firstStatementLabel,",
-              "                   label: 'كشف الطرف الثاني',": "                   label: secondStatementLabel,",
-              "          reason: 'غير موجودة في الطرف الأول',": "          reason: widget.mode == ReconciliationMode.bank\n              ? 'غير موجودة في دفاتر الشركة'\n              : 'غير موجودة في كشف حساب الشركة',",
-          }
-          for old, new in replacements.items():
-              count = text.count(old)
-              if count != 1:
-                  raise SystemExit(f'Expected one occurrence of {old!r}, found {count}')
-              text = text.replace(old, new, 1)
+          text = text.replace('withData: true,', 'withData: kIsWeb,', 1)
+          text = text.replace(
+              "statementLabel: first ? 'الكشف الأول' : 'الكشف الثاني',",
+              'statementLabel: first ? firstStatementLabel : secondStatementLabel,',
+              1,
+          )
+          text = text.replace("label: 'كشف الطرف الأول',", 'label: firstStatementLabel,', 1)
+          text = text.replace("label: 'كشف الطرف الثاني',", 'label: secondStatementLabel,', 1)
+          text = text.replace(
+              "reason: 'غير موجودة في الطرف الأول',",
+              "reason: widget.mode == ReconciliationMode.bank\n"
+              "              ? 'غير موجودة في دفاتر الشركة'\n"
+              "              : 'غير موجودة في كشف حساب الشركة',",
+              1,
+          )
 
-          prepared_block = """      final prepared = _importer.prepareBytes(
-                fileName: file.name,
-                bytes: bytes,
-              );
-          """
-          prepared_replacement = """      final prepared = _importer.prepareBytes(
-                fileName: file.name,
-                bytes: bytes,
-              );
-              // لم تعد البيانات الخام مطلوبة بعد التحليل؛ السماح بتحريرها قبل
-              // فتح شاشة تعيين الأعمدة يقلل احتمال إعادة تشغيل التطبيق على
-              // أجهزة أندرويد ذات الذاكرة المحدودة عند اختيار الكشف الثاني.
-              bytes = null;
-          """
-          if prepared_block not in text:
-              raise SystemExit('Prepared statement block was not found')
-          text = text.replace(prepared_block, prepared_replacement, 1)
+          if 'bytes = null;' not in text:
+              marker = '      var mapping = await _askMapping('
+              if marker not in text:
+                  raise SystemExit('Could not locate mapping marker')
+              text = text.replace(
+                  marker,
+                  '      // حرر بيانات الملف الخام قبل فتح شاشة تعيين الأعمدة لتقليل الذاكرة.\n'
+                  '      bytes = null;\n'
+                  + marker,
+                  1,
+              )
+
+          required_main = [
+              'String get firstStatementLabel',
+              'String get secondStatementLabel',
+              'withData: kIsWeb,',
+              'statementLabel: first ? firstStatementLabel : secondStatementLabel,',
+              'label: firstStatementLabel,',
+              'label: secondStatementLabel,',
+              'bytes = null;',
+          ]
+          missing = [item for item in required_main if item not in text]
+          if missing:
+              raise SystemExit(f'Missing main.dart changes: {missing}')
           main_path.write_text(text, encoding='utf-8')
 
           export_path = Path('lib/services/export_service.dart')
           export = export_path.read_text(encoding='utf-8')
-          export_replacements = {
-              "TextCellValue('الطرف الأول')": "TextCellValue('كشف حساب الشركة')",
-              "TextCellValue('الطرف الثاني')": "TextCellValue('كشف حساب العميل أو المورد')",
-              "'غير موجودة في الطرف الأول'": "'غير موجودة في كشف حساب الشركة'",
-              "'الطرف الأول: $firstName'": "'كشف حساب الشركة: $firstName'",
-              "'الطرف الثاني: $secondName'": "'كشف حساب العميل أو المورد: $secondName'",
-              "'تفاصيل الطرف الأول'": "'تفاصيل كشف حساب الشركة'",
-              "'تفاصيل الطرف الثاني'": "'تفاصيل كشف حساب العميل أو المورد'",
-              "'تاريخ الطرف الأول'": "'تاريخ كشف حساب الشركة'",
-              "'مستند الطرف الأول'": "'مستند كشف حساب الشركة'",
-              "'جهة الطرف الأول'": "'جهة كشف حساب الشركة'",
-              "'مبلغ الطرف الأول'": "'مبلغ كشف حساب الشركة'",
-              "'بيان الطرف الأول'": "'بيان كشف حساب الشركة'",
-              "'تاريخ الطرف الثاني'": "'تاريخ كشف حساب العميل أو المورد'",
-              "'مستند الطرف الثاني'": "'مستند كشف حساب العميل أو المورد'",
-              "'جهة الطرف الثاني'": "'جهة كشف حساب العميل أو المورد'",
-              "'مبلغ الطرف الثاني'": "'مبلغ كشف حساب العميل أو المورد'",
-              "'بيان الطرف الثاني'": "'بيان كشف حساب العميل أو المورد'",
+          replacements = {
+              'الطرف الأول': 'كشف حساب الشركة',
+              'الطرف الثاني': 'كشف حساب العميل أو المورد',
           }
-          for old, new in export_replacements.items():
+          for old, new in replacements.items():
               export = export.replace(old, new)
           if 'الطرف الأول' in export or 'الطرف الثاني' in export:
-              raise SystemExit('Some ambiguous party labels remain in export_service.dart')
+              raise SystemExit('Ambiguous party labels remain in export_service.dart')
           export_path.write_text(export, encoding='utf-8')
           PY
+
+          dart format lib/main.dart lib/services/export_service.dart
+          git diff --check
+          git diff -- lib/main.dart lib/services/export_service.dart
 
       - name: Commit patched files
         shell: bash
@@ -118,6 +112,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/main.dart lib/services/export_service.dart
-          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No additional changes were needed."
+            exit 0
+          fi
           git commit -m "Clarify statement labels and reduce picker memory"
           git push origin HEAD:agent/fix-report-saving
