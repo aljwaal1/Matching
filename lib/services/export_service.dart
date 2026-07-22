@@ -30,8 +30,8 @@ class ExportService {
       TextCellValue(''),
     ]);
     summary.appendRow([TextCellValue('اسم المطابقة'), TextCellValue(name)]);
-    summary.appendRow([TextCellValue('الطرف الأول'), TextCellValue(firstName)]);
-    summary.appendRow([TextCellValue('الطرف الثاني'), TextCellValue(secondName)]);
+    summary.appendRow([TextCellValue('كشف حساب الشركة'), TextCellValue(firstName)]);
+    summary.appendRow([TextCellValue('كشف حساب العميل أو المورد'), TextCellValue(secondName)]);
     summary.appendRow([
       TextCellValue('عدد العمليات المتطابقة'),
       IntCellValue(result.matchedCount),
@@ -104,7 +104,7 @@ class ExportService {
           left: null,
           right: record,
           status: MatchStatus.unmatched,
-          reason: 'غير موجودة في الطرف الأول',
+          reason: 'غير موجودة في كشف حساب الشركة',
           score: null,
         ),
       );
@@ -144,7 +144,7 @@ class ExportService {
           left: null,
           right: record,
           status: MatchStatus.unmatched,
-          reason: 'غير موجودة في الطرف الأول',
+          reason: 'غير موجودة في كشف حساب الشركة',
           score: null,
         ),
       ),
@@ -253,8 +253,8 @@ class ExportService {
               textAlign: pw.TextAlign.center,
             ),
             pw.SizedBox(height: 5),
-            arabicPdfText('الطرف الأول: $firstName', fonts),
-            arabicPdfText('الطرف الثاني: $secondName', fonts),
+            arabicPdfText('كشف حساب الشركة: $firstName', fonts),
+            arabicPdfText('كشف حساب العميل أو المورد: $secondName', fonts),
             arabicPdfText(
               'تاريخ التقرير: ${DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now())}',
               fonts,
@@ -331,8 +331,8 @@ class ExportService {
             children: [
               _cell(fonts, 'الحالة', bold: true, center: true),
               _cell(fonts, 'سبب ودرجة المطابقة', bold: true, center: true),
-              _cell(fonts, 'تفاصيل الطرف الأول', bold: true, center: true),
-              _cell(fonts, 'تفاصيل الطرف الثاني', bold: true, center: true),
+              _cell(fonts, 'تفاصيل كشف حساب الشركة', bold: true, center: true),
+              _cell(fonts, 'تفاصيل كشف حساب العميل أو المورد', bold: true, center: true),
             ],
           ),
           ...rows.map(
@@ -399,16 +399,16 @@ class ExportService {
     'الحالة',
     'درجة المطابقة',
     'السبب',
-    'تاريخ الطرف الأول',
-    'رقم مرجع أو مستند الطرف الأول',
-    'جهة الطرف الأول',
-    'مبلغ الطرف الأول',
-    'بيان الطرف الأول',
-    'تاريخ الطرف الثاني',
-    'رقم مرجع أو مستند الطرف الثاني',
-    'جهة الطرف الثاني',
-    'مبلغ الطرف الثاني',
-    'بيان الطرف الثاني',
+    'تاريخ كشف حساب الشركة',
+    'رقم مرجع أو مستند كشف حساب الشركة',
+    'جهة كشف حساب الشركة',
+    'مبلغ كشف حساب الشركة',
+    'بيان كشف حساب الشركة',
+    'تاريخ كشف حساب العميل أو المورد',
+    'رقم مرجع أو مستند كشف حساب العميل أو المورد',
+    'جهة كشف حساب العميل أو المورد',
+    'مبلغ كشف حساب العميل أو المورد',
+    'بيان كشف حساب العميل أو المورد',
   ];
 
   String _date(DateTime date) =>

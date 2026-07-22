@@ -16,6 +16,8 @@ import 'services/reconciliation_engine.dart';
 import 'screens/bank_reconciliation_screen.dart';
 import 'screens/column_mapping_screen.dart';
 import 'screens/privacy_policy_screen.dart';
+import 'screens/support_screen.dart';
+import 'widgets/operation_feedback.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -245,38 +247,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class SupportScreen extends StatelessWidget {
-  const SupportScreen({super.key});
-
-  static const _channel = MethodChannel('matching/support');
-
-  Future<void> _openEmail(BuildContext context) async {
-    try {
-      await _channel.invokeMethod<void>('openEmail');
-    } on PlatformException catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message ?? 'تعذر فتح تطبيق البريد الإلكتروني.')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('الدعم والملاحظات')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: FilledButton.icon(
-              onPressed: () => _openEmail(context),
-              icon: const Icon(Icons.email_outlined),
-              label: const Text('إرسال الملاحظات عبر البريد الإلكتروني'),
-            ),
-          ),
-        ),
-      );
-}
-
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key, required this.mode});
 
@@ -291,6 +261,7 @@ class _SetupScreenState extends State<SetupScreen> {
   ImportedStatement? _first;
   ImportedStatement? _second;
   bool _busy = false;
+  String _busyMessage = 'جاري تنفيذ العملية...';
   int _days = 3;
   DocumentMismatchRule _documentMismatchRule = DocumentMismatchRule.unmatched;
 
@@ -298,42 +269,58 @@ class _SetupScreenState extends State<SetupScreen> {
       ? 'إعداد التسوية البنكية'
       : 'مطابقة العملاء والموردين';
 
+  String get firstStatementLabel => widget.mode == ReconciliationMode.bank
+      ? 'دفاتر الشركة'
+      : 'كشف حساب الشركة';
+
+  String get secondStatementLabel => widget.mode == ReconciliationMode.bank
+      ? 'كشف البنك'
+      : 'كشف حساب العميل أو المورد';
+
   Future<void> _pick(bool first) async {
-    FilePickerResult? result;
+    setState(() {
+      _busy = true;
+      _busyMessage = 'جاري فتح مدير الملفات...';
+    });
     try {
-      result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['xlsx', 'csv', 'tsv', 'txt', 'pdf'],
         allowMultiple: false,
-        withData: true,
+        withData: kIsWeb,
       );
-    } catch (error) {
-      _message('تعذر فتح مدير الملفات: $error');
-      return;
-    }
-    if (result == null || result.files.isEmpty) return;
+      if (result == null || result.files.isEmpty) return;
 
-    final file = result.files.single;
-    setState(() => _busy = true);
-    try {
+      final file = result.files.single;
+      if (mounted) {
+        setState(() => _busyMessage = 'جاري قراءة ملف ${file.name}...');
+      }
       Uint8List? bytes = file.bytes;
       if ((bytes == null || bytes.isEmpty) && file.path != null) {
         bytes = await File(file.path!).readAsBytes();
       }
       if (bytes == null || bytes.isEmpty) {
         throw const FormatException(
-          'تعذر الوصول إلى بيانات الملف من الجهاز.',
+          'تعذر الوصول إلى بيانات الملف من الجهاز. جرّب اختيار الملف من مجلد آخر.',
         );
       }
 
+      if (mounted) {
+        setState(() => _busyMessage = 'جاري تحليل الأعمدة والبيانات...');
+      }
       final prepared = _importer.prepareBytes(
         fileName: file.name,
         bytes: bytes,
       );
+      bytes = null;
+
+      if (mounted) {
+        setState(() => _busyMessage = 'بانتظار تأكيد أعمدة الكشف...');
+      }
       var mapping = await _askMapping(
         prepared,
         initial: prepared.suggestedMapping,
-        statementLabel: first ? 'الكشف الأول' : 'الكشف الثاني',
+        statementLabel: first ? firstStatementLabel : secondStatementLabel,
       );
       if (mapping == null) return;
 
@@ -341,7 +328,8 @@ class _SetupScreenState extends State<SetupScreen> {
           mapping.debit == null &&
           mapping.credit == null;
       if (widget.mode == ReconciliationMode.parties && usesDirectAmount) {
-        final selectedSide = await _askDirectAmountRule(file.name, prepared, mapping);
+        final selectedSide =
+            await _askDirectAmountRule(file.name, prepared, mapping);
         if (selectedSide == null) return;
         mapping = ColumnMapping(
           date: mapping.date,
@@ -355,6 +343,9 @@ class _SetupScreenState extends State<SetupScreen> {
         );
       }
 
+      if (mounted) {
+        setState(() => _busyMessage = 'جاري استيراد العمليات إلى التطبيق...');
+      }
       final imported = _importer.buildStatement(prepared, mapping);
 
       if (!mounted) return;
@@ -365,9 +356,25 @@ class _SetupScreenState extends State<SetupScreen> {
         '${imported.skippedRows.isEmpty ? '' : '، وتجاهل ${imported.skippedRows.length} صف'}',
       );
     } on FormatException catch (error) {
-      _message(error.message.toString());
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر قراءة الكشف',
+          error: error,
+          message: 'تحقق من صيغة الملف ومن وجود بيانات قابلة للقراءة.',
+        );
+      }
     } catch (error) {
-      _message('تعذر قراءة الملف: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'حدث خطأ أثناء تحميل الكشف',
+          error: error,
+          message: 'لم يتم حذف الكشف الذي سبق تحميله، ويمكنك المحاولة مرة أخرى.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -519,7 +526,11 @@ class _SetupScreenState extends State<SetupScreen> {
     if (rule == null) return;
     _documentMismatchRule = rule;
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = 'جاري مطابقة العمليات وإعداد النتائج...';
+    });
+    await Future<void>.delayed(Duration.zero);
     try {
       final left = _first!.records;
       final right = _second!.records;
@@ -564,7 +575,15 @@ class _SetupScreenState extends State<SetupScreen> {
         ),
       );
     } catch (error) {
-      _message('تعذر إكمال المطابقة: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر إكمال المطابقة',
+          error: error,
+          message: 'راجع الملفين ثم أعد المحاولة. لم يتم حذف الملفات المحمّلة.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -645,14 +664,14 @@ class _SetupScreenState extends State<SetupScreen> {
               children: [
                 _FileCard(
                   number: 1,
-                  label: 'كشف الطرف الأول',
+                  label: firstStatementLabel,
                   statement: _first,
                   onTap: () => _pick(true),
                 ),
                 const SizedBox(height: 12),
                 _FileCard(
                   number: 2,
-                  label: 'كشف الطرف الثاني',
+                  label: secondStatementLabel,
                   statement: _second,
                   onTap: () => _pick(false),
                 ),
@@ -695,11 +714,11 @@ class _SetupScreenState extends State<SetupScreen> {
                 ),
               ],
             ),
-            if (_busy)
-              const ColoredBox(
-                color: Color(0x44000000),
-                child: Center(child: CircularProgressIndicator()),
-              ),
+          if (_busy)
+            OperationStatusOverlay(
+              message: _busyMessage,
+              details: 'قد تستغرق العملية بعض الوقت حسب حجم الملف وعدد العمليات.',
+            ),
           ],
         ),
       );
@@ -739,6 +758,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
   final _export = ExportService();
   final _archive = ArchiveService();
   bool _busy = false;
+  String _busyMessage = 'جاري تنفيذ العملية...';
   String? _savedId;
   String? _savedName;
   bool _showMatched = true;
@@ -783,7 +803,10 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final name = await _askName();
     if (name == null) return;
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = 'جاري حفظ النتيجة في الأرشيف...';
+    });
     try {
       final id = _savedId ?? '${DateTime.now().microsecondsSinceEpoch}';
       await _archive.save(
@@ -806,9 +829,17 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _savedId = id;
         _savedName = name;
       });
-      _message('تم حفظ النتيجة في الأرشيف.');
+      _message('تم حفظ النتيجة في الأرشيف بنجاح.');
     } catch (error) {
-      if (mounted) _message('تعذر حفظ النتيجة: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر حفظ النتيجة',
+          error: error,
+          message: 'احتفظ بالصفحة مفتوحة ثم أعد المحاولة.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -818,25 +849,42 @@ class _ResultsScreenState extends State<ResultsScreen> {
     final name = _savedName ?? await _askName();
     if (name == null) return;
 
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = pdf
+          ? 'جاري إنشاء تقرير PDF وفتح نافذة الحفظ...'
+          : 'جاري إنشاء تقرير Excel وفتح نافذة الحفظ...';
+    });
     try {
-      if (pdf) {
-        await _export.exportPdf(
-          name: name,
-          firstName: widget.firstName,
-          secondName: widget.secondName,
-          result: widget.result,
-        );
+      final saved = pdf
+          ? await _export.exportPdf(
+              name: name,
+              firstName: widget.firstName,
+              secondName: widget.secondName,
+              result: widget.result,
+            )
+          : await _export.exportExcel(
+              name: name,
+              firstName: widget.firstName,
+              secondName: widget.secondName,
+              result: widget.result,
+            );
+      if (!mounted) return;
+      if (saved == null) {
+        _message('تم إلغاء حفظ التقرير.');
       } else {
-        await _export.exportExcel(
-          name: name,
-          firstName: widget.firstName,
-          secondName: widget.secondName,
-          result: widget.result,
-        );
+        _message('تم حفظ ${pdf ? 'PDF' : 'Excel'} باسم ${saved.fileName}.');
       }
     } catch (error) {
-      _message('تعذر التصدير: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر إنشاء أو حفظ التقرير',
+          error: error,
+          message: 'تأكد من توفر مساحة تخزين ومن صلاحية مجلد الحفظ.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -866,7 +914,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
           left: null,
           right: item,
           status: MatchStatus.unmatched,
-          reason: 'غير موجودة في الطرف الأول',
+          reason: widget.mode == ReconciliationMode.bank
+              ? 'غير موجودة في دفاتر الشركة'
+              : 'غير موجودة في كشف حساب الشركة',
         ),
       ),
     ];
@@ -990,9 +1040,9 @@ class _ResultsScreenState extends State<ResultsScreen> {
             ],
           ),
           if (_busy)
-            const ColoredBox(
-              color: Color(0x44000000),
-              child: Center(child: CircularProgressIndicator()),
+            OperationStatusOverlay(
+              message: _busyMessage,
+              details: 'قد تستغرق العملية بعض الوقت حسب حجم الملف وعدد العمليات.',
             ),
         ],
       ),

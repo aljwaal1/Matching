@@ -6,6 +6,7 @@ import '../models/transaction_record.dart';
 import '../services/bank_reconciliation_archive_service.dart';
 import '../services/bank_reconciliation_export_service.dart';
 import '../services/bank_reconciliation_service.dart';
+import '../widgets/operation_feedback.dart';
 
 class BankReconciliationScreen extends StatefulWidget {
   const BankReconciliationScreen({
@@ -46,6 +47,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   DateTime _period = DateTime(DateTime.now().year, DateTime.now().month);
   BankReconciliationStatement? _statement;
   bool _busy = false;
+  String _busyMessage = 'جاري تنفيذ العملية...';
   bool _usePreviousReconciliation = false;
 
   @override
@@ -146,11 +148,9 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
             ],
           ),
           if (_busy)
-            const Positioned.fill(
-              child: ColoredBox(
-                color: Color(0x44000000),
-                child: Center(child: CircularProgressIndicator()),
-              ),
+            OperationStatusOverlay(
+              message: _busyMessage,
+              details: 'قد يستغرق إعداد التقرير وقتًا حسب عدد العمليات.',
             ),
         ],
       ),
@@ -631,48 +631,74 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
 
   Future<void> _calculate() async {
     final book = double.tryParse(_bookController.text.replaceAll(',', ''));
-    final bank = double.tryParse(_bankController.text.replaceAll(',', ''));
+    final bankBalance =
+        double.tryParse(_bankController.text.replaceAll(',', ''));
     final account = _accountController.text.trim();
-    if (account.isEmpty || book == null || bank == null) {
+    if (account.isEmpty || book == null || bankBalance == null) {
       _message('أدخل اسم الحساب والرصيدين بصورة صحيحة.');
       return;
     }
-    if (widget.initialStatement != null &&
-        widget.initialStatement!.matchingResult == null) {
+
+    setState(() {
+      _busy = true;
+      _busyMessage = _usePreviousReconciliation
+          ? 'جاري تحميل البنود السابقة وإعداد التسوية...'
+          : 'جاري إعداد تقرير التسوية البنكية...';
+    });
+    await Future<void>.delayed(Duration.zero);
+    try {
+      if (widget.initialStatement != null &&
+          widget.initialStatement!.matchingResult == null) {
+        setState(() {
+          _statement = widget.initialStatement!.copyWith(
+            accountName: account,
+            period: _period,
+            bookBalance: book,
+            bankBalance: bankBalance,
+          );
+        });
+        return;
+      }
+      final previousPending = _usePreviousReconciliation
+          ? await _archive.pendingFromPrevious(
+              accountName: account,
+              beforePeriod: _period,
+            )
+          : const <BankAdjustmentItem>[];
+      if (!mounted) return;
       setState(() {
-        _statement = widget.initialStatement!.copyWith(
+        _statement = _service.build(
           accountName: account,
           period: _period,
           bookBalance: book,
-          bankBalance: bank,
+          bankBalance: bankBalance,
+          matchingResult: widget.result,
+          bookSourceName: widget.firstName,
+          bankSourceName: widget.secondName,
+          documentMismatchRule: widget.documentMismatchRule,
+          previousPending: previousPending,
         );
       });
-      return;
+    } catch (error) {
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر إعداد التسوية البنكية',
+          error: error,
+          message: 'راجع الأرصدة واسم الحساب ثم أعد المحاولة.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
-    final previousPending = _usePreviousReconciliation
-        ? await _archive.pendingFromPrevious(
-            accountName: account,
-            beforePeriod: _period,
-          )
-        : const <BankAdjustmentItem>[];
-    if (!mounted) return;
-    setState(() {
-      _statement = _service.build(
-        accountName: account,
-        period: _period,
-        bookBalance: book,
-        bankBalance: bank,
-        matchingResult: widget.result,
-        bookSourceName: widget.firstName,
-        bankSourceName: widget.secondName,
-        documentMismatchRule: widget.documentMismatchRule,
-        previousPending: previousPending,
-      );
-    });
   }
 
   Future<void> _save(BankReconciliationStatement statement) async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = 'جاري حفظ التسوية في الأرشيف...';
+    });
     try {
       final updated = statement.copyWith(
         accountName: _accountController.text.trim(),
@@ -683,7 +709,15 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
       setState(() => _statement = updated);
       _message('تم الحفظ في أرشيف التسويات البنكية.');
     } catch (error) {
-      if (mounted) _message('تعذر حفظ التسوية: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر حفظ التسوية',
+          error: error,
+          message: 'لم يتم حذف التقرير الحالي، ويمكنك إعادة المحاولة.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -692,7 +726,10 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   Future<void> _loadPreviousPending() async {
     final statement = _statement;
     if (statement == null) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = 'جاري استدعاء البنود المعلقة من التسويات السابقة...';
+    });
     try {
       final pending = await _archive.pendingFromPrevious(
         accountName: _accountController.text,
@@ -709,7 +746,14 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
         _message('تم استدعاء ${pending.length} بند معلق دون تكرار.');
       }
     } catch (error) {
-      if (mounted) _message('تعذر استدعاء التسوية السابقة: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر استدعاء التسوية السابقة',
+          error: error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -942,7 +986,12 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
     BankReconciliationStatement statement, {
     required bool pdf,
   }) async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _busyMessage = pdf
+          ? 'جاري إنشاء تقرير PDF الشامل وفتح نافذة الحفظ...'
+          : 'جاري إنشاء تقرير Excel الشامل وفتح نافذة الحفظ...';
+    });
     try {
       final companyName = statement.bookSourceName.isEmpty
           ? widget.firstName
@@ -963,11 +1012,22 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
               bankName: bankName,
               statement: statement,
             );
-      if (saved != null && mounted) {
+      if (!mounted) return;
+      if (saved == null) {
+        _message('تم إلغاء حفظ التقرير.');
+      } else {
         _message('تم حفظ ${pdf ? 'PDF' : 'Excel'}: ${saved.fileName}');
       }
     } catch (error) {
-      if (mounted) _message('تعذر إنشاء تقرير التسوية: $error');
+      if (mounted) {
+        setState(() => _busy = false);
+        await showOperationError(
+          context,
+          title: 'تعذر إنشاء أو حفظ تقرير التسوية',
+          error: error,
+          message: 'تأكد من توفر مساحة تخزين ومن صلاحية مجلد الحفظ.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

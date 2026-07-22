@@ -39,6 +39,10 @@ class FileSaveService {
         await preferences.remove(locationKey);
       }
     }
+
+    // عند تمرير bytes يقوم file_picker بإنشاء الملف وكتابته على الهاتف.
+    // لا نعيد فتح الملف وكتابته مرة ثانية؛ لأن ذلك قد يصفر الملف عند بعض
+    // مزودي المستندات، كما أنه يحجب واجهة أندرويد عند التقارير الكبيرة.
     final location = await FilePicker.platform.saveFile(
       dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
       fileName: safeName,
@@ -48,7 +52,7 @@ class FileSaveService {
     );
 
     if (location == null) return null;
-    await _writeAndVerify(location, bytes);
+    await _verifyExisting(location, bytes.length);
     final remembered = await preferences.setString(locationKey, location);
     if (!remembered) {
       throw StateError('تم إنشاء الملف، لكن تعذر حفظ موقعه للتحديث اللاحق.');
@@ -71,9 +75,28 @@ class FileSaveService {
     } else {
       return;
     }
-    if (size != bytes.length || size <= 0) {
+    _ensureExpectedSize(size, bytes.length);
+  }
+
+  Future<void> _verifyExisting(String location, int expectedSize) async {
+    if (kIsWeb) return;
+
+    final int size;
+    if (Platform.isAndroid) {
+      size = await _channel.invokeMethod<int>('verifySize', {
+            'location': location,
+          }) ??
+          -1;
+    } else {
+      size = await File(location).length();
+    }
+    _ensureExpectedSize(size, expectedSize);
+  }
+
+  void _ensureExpectedSize(int size, int expectedSize) {
+    if (size != expectedSize || size <= 0) {
       throw StateError(
-        'فشل التحقق من الملف بعد الحفظ: الحجم المتوقع ${bytes.length} والحجم الفعلي $size.',
+        'فشل التحقق من الملف بعد الحفظ: الحجم المتوقع $expectedSize والحجم الفعلي $size.',
       );
     }
   }

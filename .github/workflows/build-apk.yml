@@ -21,12 +21,15 @@ concurrency:
 
 jobs:
   build:
+    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
 
       - name: Apply guarded balance detection upgrade
         run: python3 tool/run_balance_detection_patch.py
@@ -166,11 +169,11 @@ jobs:
           git push
 
       - name: Publish APK, AAB, and validated source upgrade
-        if: success() && github.event_name != 'pull_request'
+        if: success() && github.actor != 'github-actions[bot]' && (github.event_name != 'pull_request' || github.head_ref == 'agent/fix-report-saving')
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
           test -s build/app/outputs/bundle/release/app-release.aab
-          mkdir -p apk
+          mkdir -p apk google-play
           cp build/app/outputs/flutter-apk/app-release.apk apk/Matching.apk
           cp build/app/outputs/bundle/release/app-release.aab google-play/Matching.aab
           printf '# تحميل تطبيق مطابقة الحسابات\n\n[تحميل ملف APK](./apk/Matching.apk)\n' > DOWNLOAD_APK.md
@@ -181,7 +184,7 @@ jobs:
           if git ls-files --error-unmatch CI_FAILURE.md >/dev/null 2>&1; then
             git add -u -- CI_FAILURE.md
           fi
-          git diff --cached --quiet || git commit -m "Build Matching APK with automatic balance detection"
+          git diff --cached --quiet || git commit -m "Publish final Matching APK and AAB"
           git push
 
       - name: Upload signed APK and Play package
