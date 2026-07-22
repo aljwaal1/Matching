@@ -35,27 +35,31 @@ class BankReconciliationArchiveService {
     }
 
     final preferences = await SharedPreferences.getInstance();
-    final statements = await loadAll();
-    statements.removeWhere(
-      (existing) =>
-          _normalizeAccount(existing.accountName) == normalizedAccount &&
-          existing.period.year == statement.period.year &&
-          existing.period.month == statement.period.month,
-    );
-    statements.add(
-      statement.copyWith(
-        accountName: statement.accountName.trim(),
-        period: DateTime(statement.period.year, statement.period.month),
-      ),
-    );
-    statements.sort((a, b) => b.period.compareTo(a.period));
-
-    await preferences.setStringList(
-      _key,
-      statements
-          .map((value) => jsonEncode(value.toJson()))
-          .toList(growable: false),
-    );
+    final raw = preferences.getStringList(_key) ?? const <String>[];
+    final updated = raw.where((value) {
+      try {
+        final existing = BankReconciliationStatement.fromJson(
+          Map<String, dynamic>.from(jsonDecode(value) as Map),
+        );
+        return _normalizeAccount(existing.accountName) != normalizedAccount ||
+            existing.period.year != statement.period.year ||
+            existing.period.month != statement.period.month;
+      } catch (_) {
+        return true;
+      }
+    }).toList()
+      ..add(
+        jsonEncode(
+          statement
+              .copyWith(
+                accountName: statement.accountName.trim(),
+                period: DateTime(statement.period.year, statement.period.month),
+              )
+              .toJson(),
+        ),
+      );
+    final saved = await preferences.setStringList(_key, updated);
+    if (!saved) throw StateError('تعذر حفظ التسوية في الأرشيف.');
   }
 
   Future<BankReconciliationStatement?> latestPrevious({
@@ -117,23 +121,29 @@ class BankReconciliationArchiveService {
   }) async {
     final preferences = await SharedPreferences.getInstance();
     final normalizedAccount = _normalizeAccount(accountName);
-    final statements = await loadAll();
-    statements.removeWhere(
-      (item) =>
-          _normalizeAccount(item.accountName) == normalizedAccount &&
-          item.period.year == period.year &&
-          item.period.month == period.month,
-    );
-    await preferences.setStringList(
-      _key,
-      statements
-          .map((value) => jsonEncode(value.toJson()))
-          .toList(growable: false),
-    );
+    final raw = preferences.getStringList(_key) ?? const <String>[];
+    final updated = raw.where((value) {
+      try {
+        final item = BankReconciliationStatement.fromJson(
+          Map<String, dynamic>.from(jsonDecode(value) as Map),
+        );
+        return _normalizeAccount(item.accountName) != normalizedAccount ||
+            item.period.year != period.year ||
+            item.period.month != period.month;
+      } catch (_) {
+        return true;
+      }
+    }).toList(growable: false);
+    final saved = await preferences.setStringList(_key, updated);
+    if (!saved) throw StateError('تعذر حذف التسوية من الأرشيف.');
   }
 
   String _normalizeAccount(String value) => value
       .trim()
       .toLowerCase()
+      .replaceFirst(
+        RegExp(r'\.(xlsx|xls|csv|tsv|txt|pdf)$', caseSensitive: false),
+        '',
+      )
       .replaceAll(RegExp(r'\s+'), ' ');
 }

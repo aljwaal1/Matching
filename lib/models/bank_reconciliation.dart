@@ -183,6 +183,10 @@ class BankReconciliationStatement {
     required this.bookBalance,
     required this.bankBalance,
     required this.items,
+    this.bookSourceName = '',
+    this.bankSourceName = '',
+    this.documentMismatchRule = DocumentMismatchRule.pending,
+    this.matchingResult,
   });
 
   final String accountName;
@@ -190,6 +194,10 @@ class BankReconciliationStatement {
   final double bookBalance;
   final double bankBalance;
   final List<BankAdjustmentItem> items;
+  final String bookSourceName;
+  final String bankSourceName;
+  final DocumentMismatchRule documentMismatchRule;
+  final ReconciliationResult? matchingResult;
 
   double get adjustedBankBalance => items
       .where((item) => item.adjustBankBalance && item.includedInCalculation)
@@ -216,6 +224,10 @@ class BankReconciliationStatement {
     double? bookBalance,
     double? bankBalance,
     List<BankAdjustmentItem>? items,
+    String? bookSourceName,
+    String? bankSourceName,
+    DocumentMismatchRule? documentMismatchRule,
+    ReconciliationResult? matchingResult,
   }) =>
       BankReconciliationStatement(
         accountName: accountName ?? this.accountName,
@@ -223,6 +235,11 @@ class BankReconciliationStatement {
         bookBalance: bookBalance ?? this.bookBalance,
         bankBalance: bankBalance ?? this.bankBalance,
         items: List.unmodifiable(items ?? this.items),
+        bookSourceName: bookSourceName ?? this.bookSourceName,
+        bankSourceName: bankSourceName ?? this.bankSourceName,
+        documentMismatchRule:
+            documentMismatchRule ?? this.documentMismatchRule,
+        matchingResult: matchingResult ?? this.matchingResult,
       );
 
   Map<String, dynamic> toJson() => {
@@ -234,6 +251,12 @@ class BankReconciliationStatement {
         'adjustedBookBalance': adjustedBookBalance,
         'difference': difference,
         'isBalanced': isBalanced,
+        'bookSourceName': bookSourceName,
+        'bankSourceName': bankSourceName,
+        'documentMismatchRule': documentMismatchRule.name,
+        'matchingResult': matchingResult == null
+            ? null
+            : _matchingResultToJson(matchingResult!),
         'items': items.map((item) => item.toJson()).toList(growable: false),
       };
 
@@ -243,6 +266,17 @@ class BankReconciliationStatement {
         period: DateTime.parse(json['period'] as String),
         bookBalance: (json['bookBalance'] as num).toDouble(),
         bankBalance: (json['bankBalance'] as num).toDouble(),
+        bookSourceName: json['bookSourceName'] as String? ?? '',
+        bankSourceName: json['bankSourceName'] as String? ?? '',
+        documentMismatchRule: DocumentMismatchRule.values.byName(
+          json['documentMismatchRule'] as String? ??
+              DocumentMismatchRule.pending.name,
+        ),
+        matchingResult: json['matchingResult'] == null
+            ? null
+            : _matchingResultFromJson(
+                Map<String, dynamic>.from(json['matchingResult'] as Map),
+              ),
         items: (json['items'] as List? ?? const [])
             .map(
               (item) => BankAdjustmentItem.fromJson(
@@ -252,6 +286,54 @@ class BankReconciliationStatement {
             .toList(growable: false),
       );
 }
+
+Map<String, dynamic> _matchingResultToJson(ReconciliationResult result) => {
+      'pairs': result.pairs
+          .map(
+            (pair) => {
+              'left': _transactionToJson(pair.left),
+              'right': pair.right == null
+                  ? null
+                  : _transactionToJson(pair.right!),
+              'status': pair.status.name,
+              'reason': pair.reason,
+              'score': pair.score,
+            },
+          )
+          .toList(growable: false),
+      'unmatchedRight': result.unmatchedRight
+          .map(_transactionToJson)
+          .toList(growable: false),
+    };
+
+ReconciliationResult _matchingResultFromJson(Map<String, dynamic> json) =>
+    ReconciliationResult(
+      pairs: (json['pairs'] as List? ?? const [])
+          .map((value) {
+            final map = Map<String, dynamic>.from(value as Map);
+            return MatchPair(
+              left: _transactionFromJson(
+                Map<String, dynamic>.from(map['left'] as Map),
+              ),
+              right: map['right'] == null
+                  ? null
+                  : _transactionFromJson(
+                      Map<String, dynamic>.from(map['right'] as Map),
+                    ),
+              status: MatchStatus.values.byName(map['status'] as String),
+              reason: map['reason'] as String? ?? '',
+              score: (map['score'] as num?)?.toDouble() ?? 0,
+            );
+          })
+          .toList(growable: false),
+      unmatchedRight: (json['unmatchedRight'] as List? ?? const [])
+          .map(
+            (value) => _transactionFromJson(
+              Map<String, dynamic>.from(value as Map),
+            ),
+          )
+          .toList(growable: false),
+    );
 
 Map<String, dynamic> _transactionToJson(TransactionRecord item) => {
       'id': item.id,

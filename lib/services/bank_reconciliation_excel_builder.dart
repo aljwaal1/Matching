@@ -2,6 +2,7 @@ import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
 
 import '../models/bank_reconciliation.dart';
+import '../models/transaction_record.dart';
 import 'excel_report_style.dart';
 
 class BankReconciliationExcelBuilder {
@@ -16,10 +17,16 @@ class BankReconciliationExcelBuilder {
     workbook.delete('Sheet1');
 
     final activeBankItems = statement.items
-        .where((item) => item.adjustBankBalance && !item.cleared)
+        .where((item) => item.adjustBankBalance && item.includedInCalculation)
         .toList(growable: false);
     final activeBookItems = statement.items
-        .where((item) => !item.adjustBankBalance && !item.cleared)
+        .where((item) => !item.adjustBankBalance && item.includedInCalculation)
+        .toList(growable: false);
+    final reviewItems = statement.items
+        .where(
+          (item) =>
+              item.type == BankDifferenceType.reviewRequired && !item.cleared,
+        )
         .toList(growable: false);
     final bankPending = activeBankItems
         .where((item) => item.status == BankItemStatus.pending)
@@ -41,11 +48,16 @@ class BankReconciliationExcelBuilder {
     );
     _buildItemsSheet(workbook['معلقات كشف البنك'], bankPending);
     _buildItemsSheet(workbook['معلقات دفاتر الشركة'], bookPending);
+    _buildItemsSheet(workbook['تحتاج مراجعة'], reviewItems, includeSide: true);
     _buildItemsSheet(
       workbook['المرحل للشهر القادم'],
       carried,
       includeSide: true,
     );
+    final matchingResult = statement.matchingResult;
+    if (matchingResult != null) {
+      _buildMatchingSheet(workbook['تحليل المطابقة'], matchingResult);
+    }
 
     final bytes = workbook.encode();
     if (bytes == null) throw Exception('تعذر إنشاء ملف Excel للتسوية.');
@@ -71,6 +83,12 @@ class BankReconciliationExcelBuilder {
       'شهر التسوية',
       DateFormat('yyyy/MM', 'en_US').format(statement.period),
     );
+    _appendText(
+      sheet,
+      'قاعدة اختلاف رقم المرجع',
+      _ruleLabel(statement.documentMismatchRule),
+    );
+    final moneyStartRow = sheet.maxRows;
     _appendMoney(sheet, 'رصيد كشف البنك', statement.bankBalance);
     for (final line in _aggregate(bankItems)) {
       _appendMoney(sheet, line.label, line.amount);
@@ -98,14 +116,124 @@ class BankReconciliationExcelBuilder {
       'حالة التسوية',
       statement.isBalanced ? 'متوازنة' : 'غير متوازنة',
     );
+    final matchingResult = statement.matchingResult;
+    if (matchingResult != null) {
+      _appendText(sheet, 'العمليات المتطابقة', '${matchingResult.matchedCount}');
+      _appendText(sheet, 'المعلقة للمراجعة', '${matchingResult.pendingCount}');
+      _appendText(
+        sheet,
+        'العمليات غير المتطابقة',
+        '${matchingResult.unmatchedCount}',
+      );
+    }
 
     ExcelReportStyle.styleSummary(
       sheet,
       rows: sheet.maxRows,
-      moneyRows: {for (var row = 4; row <= differenceRow; row++) row},
+      moneyRows: {
+        for (var row = moneyStartRow; row <= differenceRow; row++) row,
+      },
       totalRows: {adjustedBankRow, adjustedBookRow, differenceRow},
     );
   }
+
+  void _buildMatchingSheet(Sheet sheet, ReconciliationResult result) {
+    const headers = [
+      'الحالة',
+      'السبب',
+      'درجة المطابقة',
+      'تاريخ دفاتر الشركة',
+      'مستند دفاتر الشركة',
+      'بيان دفاتر الشركة',
+      'مدين دفاتر الشركة',
+      'دائن دفاتر الشركة',
+      'رصيد دفاتر الشركة',
+      'تاريخ كشف البنك',
+      'مرجع كشف البنك',
+      'بيان كشف البنك',
+      'مدين كشف البنك',
+      'دائن كشف البنك',
+      'رصيد كشف البنك',
+    ];
+    sheet.appendRow(headers.map(TextCellValue.new).toList());
+    for (final pair in result.pairs) {
+      sheet.appendRow(
+        _matchingRow(
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+          left: pair.left,
+          right: pair.right,
+        ),
+      );
+    }
+    for (final right in result.unmatchedRight) {
+      sheet.appendRow(
+        _matchingRow(
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في دفاتر الشركة',
+          score: 0,
+          left: null,
+          right: right,
+        ),
+      );
+    }
+    ExcelReportStyle.styleTable(
+      sheet,
+      headerRow: 0,
+      lastRow: sheet.maxRows - 1,
+      columnCount: headers.length,
+      moneyColumns: const {6, 7, 8, 12, 13, 14},
+      centeredColumns: const {0, 2, 3, 4, 9, 10},
+      widths: const [
+        18,
+        34,
+        15,
+        16,
+        20,
+        38,
+        17,
+        17,
+        18,
+        16,
+        20,
+        38,
+        17,
+        17,
+        18,
+      ],
+    );
+  }
+
+  List<CellValue> _matchingRow({
+    required MatchStatus status,
+    required String reason,
+    required double score,
+    required TransactionRecord? left,
+    required TransactionRecord? right,
+  }) =>
+      [
+        TextCellValue(_statusLabel(status)),
+        TextCellValue(reason),
+        TextCellValue('${score.toStringAsFixed(1)}%'),
+        ..._transactionCells(left),
+        ..._transactionCells(right),
+      ];
+
+  List<CellValue> _transactionCells(TransactionRecord? item) => [
+        TextCellValue(item == null ? '' : _date(item.date)),
+        TextCellValue(item?.documentNumber?.trim() ?? ''),
+        TextCellValue(item?.description ?? ''),
+        item?.side == EntrySide.debit
+            ? DoubleCellValue(item!.amount)
+            : TextCellValue(''),
+        item?.side == EntrySide.credit
+            ? DoubleCellValue(item!.amount)
+            : TextCellValue(''),
+        item?.balance == null
+            ? TextCellValue('')
+            : DoubleCellValue(item!.balance!),
+      ];
 
   void _buildItemsSheet(
     Sheet sheet,
@@ -217,6 +345,18 @@ class BankReconciliationExcelBuilder {
 
   String _date(DateTime date) =>
       DateFormat('yyyy-MM-dd', 'en_US').format(date);
+
+  String _statusLabel(MatchStatus status) => switch (status) {
+        MatchStatus.matched => 'متطابقة',
+        MatchStatus.pending => 'معلقة للمراجعة',
+        MatchStatus.unmatched => 'غير متطابقة',
+      };
+
+  String _ruleLabel(DocumentMismatchRule rule) => switch (rule) {
+        DocumentMismatchRule.unmatched => 'اعتبارها غير مطابقة',
+        DocumentMismatchRule.pending => 'اعتبارها معلقة للمراجعة',
+        DocumentMismatchRule.matchedWithNote => 'اعتبارها مطابقة مع ملاحظة',
+      };
 }
 
 class _SummaryLine {
