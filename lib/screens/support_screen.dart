@@ -109,7 +109,7 @@ $message
             ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
               children: [
-                _hero(context),
+                _hero(),
                 const SizedBox(height: 16),
                 Card(
                   child: Padding(
@@ -276,7 +276,7 @@ $message
         ),
       );
 
-  Widget _hero(BuildContext context) => Container(
+  Widget _hero() => Container(
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           gradient: const LinearGradient(
