@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:matching/models/transaction_record.dart';
 import 'package:matching/services/archive_service.dart';
@@ -95,4 +97,3 @@ void main() {
     );
   });
 }
-import 'dart:convert';
