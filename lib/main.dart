@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -215,9 +214,9 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 14),
             _TypeCard(
               icon: Icons.account_balance_outlined,
-              title: 'مطابقة كشف البنك',
+              title: 'التسوية البنكية',
               subtitle:
-                  'مطابقة كشف البنك مع السجل المحاسبي حسب المستند أو المبلغ والتاريخ.',
+                  'تحليل كشف البنك والدفاتر وإعداد تقرير التسوية الشامل.',
               onTap: () => _open(context, ReconciliationMode.bank),
             ),
           ],
@@ -293,10 +292,18 @@ class _SetupScreenState extends State<SetupScreen> {
   ImportedStatement? _second;
   bool _busy = false;
   int _days = 3;
-  DocumentMismatchRule _documentMismatchRule = DocumentMismatchRule.unmatched;
+  late DocumentMismatchRule _documentMismatchRule;
+
+  @override
+  void initState() {
+    super.initState();
+    _documentMismatchRule = widget.mode == ReconciliationMode.bank
+        ? DocumentMismatchRule.pending
+        : DocumentMismatchRule.unmatched;
+  }
 
   String get title => widget.mode == ReconciliationMode.bank
-      ? 'مطابقة كشف البنك'
+      ? 'إعداد التسوية البنكية'
       : 'مطابقة العملاء والموردين';
 
   Future<void> _pick(bool first) async {
@@ -516,11 +523,9 @@ class _SetupScreenState extends State<SetupScreen> {
       return;
     }
 
-    if (widget.mode == ReconciliationMode.parties) {
-      final rule = await _askMatchingRules();
-      if (rule == null) return;
-      _documentMismatchRule = rule;
-    }
+    final rule = await _askMatchingRules();
+    if (rule == null) return;
+    _documentMismatchRule = rule;
 
     setState(() => _busy = true);
     try {
@@ -542,16 +547,27 @@ class _SetupScreenState extends State<SetupScreen> {
         MaterialPageRoute(
           builder: (_) => Directionality(
             textDirection: TextDirection.rtl,
-            child: ResultsScreen(
-              mode: widget.mode,
-              firstName: _first!.fileName,
-              secondName: _second!.fileName,
-              result: result,
-              firstDetectedBalance: _first!.detectedBalance,
-              secondDetectedBalance: _second!.detectedBalance,
-              firstBalanceRowNumber: _first!.balanceRowNumber,
-              secondBalanceRowNumber: _second!.balanceRowNumber,
-            ),
+            child: widget.mode == ReconciliationMode.bank
+                ? BankReconciliationScreen(
+                    firstName: _first!.fileName,
+                    secondName: _second!.fileName,
+                    result: result,
+                    documentMismatchRule: _documentMismatchRule,
+                    initialBookBalance: _first!.detectedBalance,
+                    initialBankBalance: _second!.detectedBalance,
+                    bookBalanceRowNumber: _first!.balanceRowNumber,
+                    bankBalanceRowNumber: _second!.balanceRowNumber,
+                  )
+                : ResultsScreen(
+                    mode: widget.mode,
+                    firstName: _first!.fileName,
+                    secondName: _second!.fileName,
+                    result: result,
+                    firstDetectedBalance: _first!.detectedBalance,
+                    secondDetectedBalance: _second!.detectedBalance,
+                    firstBalanceRowNumber: _first!.balanceRowNumber,
+                    secondBalanceRowNumber: _second!.balanceRowNumber,
+                  ),
           ),
         ),
       );
@@ -584,17 +600,25 @@ class _SetupScreenState extends State<SetupScreen> {
                   groupValue: selected,
                   onChanged: (value) =>
                       setDialogState(() => selected = value!),
-                  child: const Column(
+                  child: Column(
                     children: [
                       RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.unmatched,
-                        title: Text('اعتبار العملية غير مطابقة (الافتراضي)'),
+                        title: Text(
+                          widget.mode == ReconciliationMode.parties
+                              ? 'اعتبار العملية غير مطابقة (الافتراضي)'
+                              : 'اعتبار العملية غير مطابقة',
+                        ),
                       ),
                       RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.pending,
-                        title: Text('اعتبارها معلقة للمراجعة'),
+                        title: Text(
+                          widget.mode == ReconciliationMode.bank
+                              ? 'اعتبارها معلقة للمراجعة (الافتراضي)'
+                              : 'اعتبارها معلقة للمراجعة',
+                        ),
                       ),
-                      RadioListTile<DocumentMismatchRule>(
+                      const RadioListTile<DocumentMismatchRule>(
                         value: DocumentMismatchRule.matchedWithNote,
                         title: Text('اعتبارها مطابقة مع ملاحظة'),
                       ),
@@ -676,9 +700,13 @@ class _SetupScreenState extends State<SetupScreen> {
                 FilledButton.icon(
                   onPressed: _busy ? null : _match,
                   icon: const Icon(Icons.compare_arrows),
-                  label: const Padding(
+                  label: Padding(
                     padding: EdgeInsets.symmetric(vertical: 14),
-                    child: Text('بدء المطابقة'),
+                    child: Text(
+                      widget.mode == ReconciliationMode.bank
+                          ? 'تحليل الملفات ومتابعة التسوية'
+                          : 'بدء المطابقة',
+                    ),
                   ),
                 ),
               ],
@@ -795,6 +823,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _savedName = name;
       });
       _message('تم حفظ النتيجة في الأرشيف.');
+    } catch (error) {
+      if (mounted) _message('تعذر حفظ النتيجة: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -991,15 +1021,23 @@ class ArchiveHomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('أرشيف المطابقات')),
+        appBar: AppBar(title: const Text('الأرشيف')),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
             _TypeCard(
               icon: Icons.account_balance_outlined,
-              title: 'أرشيف مطابقات البنك',
-              subtitle: 'النتائج المحفوظة لمطابقات البنك.',
-              onTap: () => _open(context, ReconciliationMode.bank),
+              title: 'أرشيف التسويات البنكية',
+              subtitle: 'التسويات المحفوظة مع الأرصدة والبنود والتحليل.',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: BankReconciliationArchiveScreen(),
+                  ),
+                ),
+              ),
             ),
             const SizedBox(height: 14),
             _TypeCard(

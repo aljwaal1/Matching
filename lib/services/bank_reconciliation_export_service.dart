@@ -30,22 +30,12 @@ class BankReconciliationExportService {
       bankName: bankName,
       statement: statement,
     );
-    final pdfResult = await fileSaver.saveBytes(
+    return fileSaver.saveBytes(
       bytes: bytes,
       fileName: baseName,
       extension: 'pdf',
       dialogTitle: 'حفظ التسوية البنكية بصيغة PDF',
     );
-
-    if (pdfResult != null) {
-      await exportExcel(
-        companyName: companyName,
-        bankName: bankName,
-        statement: statement,
-        suggestedName: baseName,
-      );
-    }
-    return pdfResult;
   }
 
   Future<SavedReport?> exportExcel({

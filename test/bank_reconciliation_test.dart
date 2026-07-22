@@ -154,6 +154,38 @@ void main() {
     expect(statement.isBalanced, isFalse);
   });
 
+  test('pending document mismatch stays out of adjusted balances', () {
+    final left = transaction('book-review', 20, side: EntrySide.debit);
+    final right = transaction('bank-review', 20, side: EntrySide.credit);
+    final matchingResult = ReconciliationResult(
+      pairs: [
+        MatchPair(
+          left: left,
+          right: right,
+          status: MatchStatus.pending,
+          reason: 'اختلاف رقم المستند — معلقة للمراجعة',
+          score: 80,
+        ),
+      ],
+      unmatchedRight: const [],
+    );
+
+    final statement = service.build(
+      period: DateTime(2026, 7),
+      bookBalance: 100,
+      bankBalance: 100,
+      matchingResult: matchingResult,
+      documentMismatchRule: DocumentMismatchRule.pending,
+    );
+
+    expect(statement.items, hasLength(1));
+    expect(statement.items.single.type, BankDifferenceType.reviewRequired);
+    expect(statement.adjustedBookBalance, 100);
+    expect(statement.adjustedBankBalance, 100);
+    expect(statement.isBalanced, isFalse);
+    expect(statement.matchingResult, same(matchingResult));
+  });
+
   test('changing standard classification updates accounting treatment', () {
     const original = BankAdjustmentItem(
       id: 'item',

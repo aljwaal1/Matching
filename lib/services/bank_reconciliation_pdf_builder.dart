@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/bank_reconciliation.dart';
+import '../models/transaction_record.dart';
 import 'arabic_pdf_support.dart';
 
 class BankReconciliationPdfBuilder {
@@ -19,10 +20,16 @@ class BankReconciliationPdfBuilder {
     final document = pw.Document(theme: arabicPdfTheme(fonts));
 
     final activeBankItems = statement.items
-        .where((item) => item.adjustBankBalance && !item.cleared)
+        .where((item) => item.adjustBankBalance && item.includedInCalculation)
         .toList(growable: false);
     final activeBookItems = statement.items
-        .where((item) => !item.adjustBankBalance && !item.cleared)
+        .where((item) => !item.adjustBankBalance && item.includedInCalculation)
+        .toList(growable: false);
+    final reviewItems = statement.items
+        .where(
+          (item) =>
+              item.type == BankDifferenceType.reviewRequired && !item.cleared,
+        )
         .toList(growable: false);
     final bankPending = activeBankItems
         .where((item) => item.status == BankItemStatus.pending)
@@ -88,6 +95,16 @@ class BankReconciliationPdfBuilder {
             items: bookPending,
             color: PdfColor.fromHex('#6D4CFF'),
           ),
+          if (reviewItems.isNotEmpty) ...[
+            pw.SizedBox(height: 16),
+            _detailSection(
+              fonts: fonts,
+              title: 'بنود تحتاج مراجعة',
+              items: reviewItems,
+              color: PdfColor.fromHex('#B45309'),
+              includeSide: true,
+            ),
+          ],
           if (carried.isNotEmpty) ...[
             pw.NewPage(),
             _detailSection(
@@ -97,6 +114,10 @@ class BankReconciliationPdfBuilder {
               color: PdfColor.fromHex('#D97706'),
               includeSide: true,
             ),
+          ],
+          if (statement.matchingResult != null) ...[
+            pw.NewPage(),
+            _matchingAnalysis(fonts, statement.matchingResult!),
           ],
         ],
       ),
@@ -139,6 +160,10 @@ class BankReconciliationPdfBuilder {
               bold: true,
             ),
             arabicPdfText(
+              'قاعدة اختلاف رقم المرجع: ${_ruleLabel(statement.documentMismatchRule)}',
+              fonts,
+            ),
+            arabicPdfText(
               'تاريخ إعداد التقرير: ${DateFormat('yyyy/MM/dd HH:mm', 'en_US').format(DateTime.now())}',
               fonts,
               fontSize: 9,
@@ -147,6 +172,91 @@ class BankReconciliationPdfBuilder {
           ],
         ),
       );
+
+  pw.Widget _matchingAnalysis(
+    ArabicPdfFonts fonts,
+    ReconciliationResult result,
+  ) {
+    final rows = <({
+      MatchStatus status,
+      String reason,
+      double score,
+      TransactionRecord? left,
+      TransactionRecord? right,
+    })>[
+      ...result.pairs.map(
+        (pair) => (
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+          left: pair.left,
+          right: pair.right,
+        ),
+      ),
+      ...result.unmatchedRight.map(
+        (right) => (
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في دفاتر الشركة',
+          score: 0,
+          left: null,
+          right: right,
+        ),
+      ),
+    ];
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        arabicPdfText(
+          'التحليل الرقابي للمطابقة',
+          fonts,
+          fontSize: 16,
+          bold: true,
+          textAlign: pw.TextAlign.center,
+        ),
+        pw.SizedBox(height: 6),
+        arabicPdfText(
+          'متطابقة: ${result.matchedCount} — معلقة: ${result.pendingCount} — غير متطابقة: ${result.unmatchedCount}',
+          fonts,
+          textAlign: pw.TextAlign.center,
+        ),
+        pw.SizedBox(height: 10),
+        pw.Table(
+          border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.4),
+          columnWidths: const {
+            0: pw.FlexColumnWidth(1.1),
+            1: pw.FlexColumnWidth(2.0),
+            2: pw.FlexColumnWidth(3.4),
+            3: pw.FlexColumnWidth(3.4),
+          },
+          children: [
+            pw.TableRow(
+              repeat: true,
+              decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCD2FF')),
+              children: [
+                _cell(fonts, 'الحالة', bold: true, center: true),
+                _cell(fonts, 'السبب والدرجة', bold: true, center: true),
+                _cell(fonts, 'دفاتر الشركة', bold: true, center: true),
+                _cell(fonts, 'كشف البنك', bold: true, center: true),
+              ],
+            ),
+            ...rows.map(
+              (row) => pw.TableRow(
+                children: [
+                  _cell(fonts, _statusLabel(row.status), center: true),
+                  _cell(
+                    fonts,
+                    '${row.reason}\nدرجة المطابقة: ${row.score.toStringAsFixed(1)}%',
+                  ),
+                  _cell(fonts, _transactionDetail(row.left)),
+                  _cell(fonts, _transactionDetail(row.right)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
   pw.Widget _summarySection({
     required ArabicPdfFonts fonts,
@@ -418,6 +528,29 @@ class BankReconciliationPdfBuilder {
     final formatted = NumberFormat('#,##0.00', 'en_US').format(value.abs());
     return value < 0 ? '-$formatted' : formatted;
   }
+
+  String _transactionDetail(TransactionRecord? item) {
+    if (item == null) return 'لا توجد عملية مقابلة';
+    final document = item.documentNumber?.trim();
+    return 'التاريخ: ${_date(item.date)}\n'
+        'المستند: ${document == null || document.isEmpty ? '-' : document}\n'
+        'البيان: ${item.description.trim().isEmpty ? '-' : item.description}\n'
+        'المدين: ${item.side == EntrySide.debit ? _money(item.amount) : '0.00'}\n'
+        'الدائن: ${item.side == EntrySide.credit ? _money(item.amount) : '0.00'}\n'
+        'الرصيد: ${item.balance == null ? '-' : _money(item.balance!)}';
+  }
+
+  String _statusLabel(MatchStatus status) => switch (status) {
+        MatchStatus.matched => 'متطابقة',
+        MatchStatus.pending => 'معلقة للمراجعة',
+        MatchStatus.unmatched => 'غير متطابقة',
+      };
+
+  String _ruleLabel(DocumentMismatchRule rule) => switch (rule) {
+        DocumentMismatchRule.unmatched => 'اعتبارها غير مطابقة',
+        DocumentMismatchRule.pending => 'اعتبارها معلقة للمراجعة',
+        DocumentMismatchRule.matchedWithNote => 'اعتبارها مطابقة مع ملاحظة',
+      };
 }
 
 class _SummaryLine {

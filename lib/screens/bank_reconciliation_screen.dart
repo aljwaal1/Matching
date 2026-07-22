@@ -13,19 +13,23 @@ class BankReconciliationScreen extends StatefulWidget {
     required this.firstName,
     required this.secondName,
     required this.result,
+    this.documentMismatchRule = DocumentMismatchRule.pending,
     this.initialBookBalance,
     this.initialBankBalance,
     this.bookBalanceRowNumber,
     this.bankBalanceRowNumber,
+    this.initialStatement,
   });
 
   final String firstName;
   final String secondName;
   final ReconciliationResult result;
+  final DocumentMismatchRule documentMismatchRule;
   final double? initialBookBalance;
   final double? initialBankBalance;
   final int? bookBalanceRowNumber;
   final int? bankBalanceRowNumber;
+  final BankReconciliationStatement? initialStatement;
 
   @override
   State<BankReconciliationScreen> createState() =>
@@ -47,12 +51,25 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   @override
   void initState() {
     super.initState();
-    _accountController = TextEditingController(text: widget.secondName);
-    if (widget.initialBookBalance != null) {
-      _bookController.text = widget.initialBookBalance!.toStringAsFixed(2);
+    final initial = widget.initialStatement;
+    _accountController = TextEditingController(
+      text: initial?.accountName ??
+          widget.secondName.replaceFirst(
+            RegExp(r'\.(xlsx|xls|csv|tsv|txt|pdf)$', caseSensitive: false),
+            '',
+          ),
+    );
+    final bookBalance = initial?.bookBalance ?? widget.initialBookBalance;
+    final bankBalance = initial?.bankBalance ?? widget.initialBankBalance;
+    if (bookBalance != null) {
+      _bookController.text = bookBalance.toStringAsFixed(2);
     }
-    if (widget.initialBankBalance != null) {
-      _bankController.text = widget.initialBankBalance!.toStringAsFixed(2);
+    if (bankBalance != null) {
+      _bankController.text = bankBalance.toStringAsFixed(2);
+    }
+    if (initial != null) {
+      _period = initial.period;
+      _statement = initial;
     }
   }
 
@@ -305,19 +322,24 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
             label: const Text('استدعاء المعلّق السابق'),
           ),
           OutlinedButton.icon(
-            onPressed: _busy ? null : () => _export(statement),
+            onPressed: _busy ? null : () => _export(statement, pdf: false),
+            icon: const Icon(Icons.table_view_rounded),
+            label: const Text('Excel شامل'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : () => _export(statement, pdf: true),
             icon: const Icon(Icons.picture_as_pdf_rounded),
-            label: const Text('تصدير PDF'),
+            label: const Text('PDF شامل'),
           ),
         ],
       );
 
   Widget _standardReport(BankReconciliationStatement statement) {
     final bankItems = statement.items
-        .where((item) => item.adjustBankBalance && !item.cleared)
+        .where((item) => item.adjustBankBalance && item.includedInCalculation)
         .toList(growable: false);
     final bookItems = statement.items
-        .where((item) => !item.adjustBankBalance && !item.cleared)
+        .where((item) => !item.adjustBankBalance && item.includedInCalculation)
         .toList(growable: false);
 
     return Card(
@@ -615,6 +637,18 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
       _message('أدخل اسم الحساب والرصيدين بصورة صحيحة.');
       return;
     }
+    if (widget.initialStatement != null &&
+        widget.initialStatement!.matchingResult == null) {
+      setState(() {
+        _statement = widget.initialStatement!.copyWith(
+          accountName: account,
+          period: _period,
+          bookBalance: book,
+          bankBalance: bank,
+        );
+      });
+      return;
+    }
     final previousPending = _usePreviousReconciliation
         ? await _archive.pendingFromPrevious(
             accountName: account,
@@ -629,6 +663,9 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
         bookBalance: book,
         bankBalance: bank,
         matchingResult: widget.result,
+        bookSourceName: widget.firstName,
+        bankSourceName: widget.secondName,
+        documentMismatchRule: widget.documentMismatchRule,
         previousPending: previousPending,
       );
     });
@@ -644,7 +681,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
       await _archive.save(updated);
       if (!mounted) return;
       setState(() => _statement = updated);
-      _message('تم حفظ التسوية البنكية في الأرشيف.');
+      _message('تم الحفظ في أرشيف التسويات البنكية.');
     } catch (error) {
       if (mounted) _message('تعذر حفظ التسوية: $error');
     } finally {
@@ -901,16 +938,34 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
     });
   }
 
-  Future<void> _export(BankReconciliationStatement statement) async {
+  Future<void> _export(
+    BankReconciliationStatement statement, {
+    required bool pdf,
+  }) async {
     setState(() => _busy = true);
     try {
-      await _exporter.exportPdf(
-        companyName: widget.firstName,
-        bankName: statement.accountName.isEmpty
-            ? widget.secondName
-            : statement.accountName,
-        statement: statement,
-      );
+      final companyName = statement.bookSourceName.isEmpty
+          ? widget.firstName
+          : statement.bookSourceName;
+      final bankName = statement.accountName.isEmpty
+          ? (statement.bankSourceName.isEmpty
+              ? widget.secondName
+              : statement.bankSourceName)
+          : statement.accountName;
+      final saved = pdf
+          ? await _exporter.exportPdf(
+              companyName: companyName,
+              bankName: bankName,
+              statement: statement,
+            )
+          : await _exporter.exportExcel(
+              companyName: companyName,
+              bankName: bankName,
+              statement: statement,
+            );
+      if (saved != null && mounted) {
+        _message('تم حفظ ${pdf ? 'PDF' : 'Excel'}: ${saved.fileName}');
+      }
     } catch (error) {
       if (mounted) _message('تعذر إنشاء تقرير التسوية: $error');
     } finally {
@@ -921,4 +976,105 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   void _message(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
+}
+
+class BankReconciliationArchiveScreen extends StatefulWidget {
+  const BankReconciliationArchiveScreen({super.key});
+
+  @override
+  State<BankReconciliationArchiveScreen> createState() =>
+      _BankReconciliationArchiveScreenState();
+}
+
+class _BankReconciliationArchiveScreenState
+    extends State<BankReconciliationArchiveScreen> {
+  final _archive = BankReconciliationArchiveService();
+  late Future<List<BankReconciliationStatement>> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  void _reload() => _items = _archive.loadAll();
+
+  Future<void> _delete(BankReconciliationStatement item) async {
+    await _archive.delete(accountName: item.accountName, period: item.period);
+    if (mounted) setState(_reload);
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('أرشيف التسويات البنكية')),
+        body: FutureBuilder<List<BankReconciliationStatement>>(
+          future: _items,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('تعذر فتح الأرشيف: ${snapshot.error}'));
+            }
+            final items = snapshot.data ?? const [];
+            if (items.isEmpty) {
+              return const Center(child: Text('لا توجد تسويات محفوظة.'));
+            }
+            return ListView.builder(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return Card(
+                  child: ListTile(
+                    leading: Icon(
+                      item.isBalanced
+                          ? Icons.check_circle_outline
+                          : Icons.warning_amber_rounded,
+                    ),
+                    title: Text(item.accountName),
+                    subtitle: Text(
+                      '${DateFormat('yyyy/MM').format(item.period)} — '
+                      'الفرق ${item.difference.toStringAsFixed(2)}',
+                    ),
+                    trailing: IconButton(
+                      tooltip: 'حذف',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _delete(item),
+                    ),
+                    onTap: () async {
+                      final matchingResult = item.matchingResult ??
+                          const ReconciliationResult(
+                            pairs: [],
+                            unmatchedRight: [],
+                          );
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: BankReconciliationScreen(
+                              firstName: item.bookSourceName.isEmpty
+                                  ? 'دفاتر الشركة'
+                                  : item.bookSourceName,
+                              secondName: item.bankSourceName.isEmpty
+                                  ? item.accountName
+                                  : item.bankSourceName,
+                              result: matchingResult,
+                              documentMismatchRule:
+                                  item.documentMismatchRule,
+                              initialStatement: item,
+                            ),
+                          ),
+                        ),
+                      );
+                      if (mounted) setState(_reload);
+                    },
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      );
 }

@@ -84,13 +84,54 @@ void main() {
     expect(result.matchedCount, 0);
   });
 
-  test('لا يطبق قاعدة اختلاف رقم المستند على مطابقة البنك', () {
+  test('يعلق اختلاف رقم المستند في البنك عند اختيار المراجعة', () {
     final result = engine.reconcile(
       left: [tx('l', '2026-01-01', 100, doc: 'A1')],
       right: [tx('r', '2026-01-01', 100, doc: 'B1')],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.bank,
+        documentMismatchRule: DocumentMismatchRule.pending,
+      ),
+    );
+    expect(result.pendingCount, 1);
+    expect(result.unmatchedRight, isEmpty);
+  });
+
+  test('يرفض اختلاف رقم المستند في البنك عند اختيار غير مطابقة', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
+      right: [tx('r', '2026-01-01', 100, doc: 'B1')],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.bank,
+        documentMismatchRule: DocumentMismatchRule.unmatched,
+      ),
+    );
+    expect(result.matchedCount, 0);
+    expect(result.pairs.single.reason, 'اختلاف رقم المستند');
+    expect(result.unmatchedRight, hasLength(1));
+  });
+
+  test('يسمح بمطابقة البنك مع ملاحظة اختلاف المرجع', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
+      right: [tx('r', '2026-01-01', 100, doc: 'B1')],
+      settings: const ReconciliationSettings(
+        mode: ReconciliationMode.bank,
+        documentMismatchRule: DocumentMismatchRule.matchedWithNote,
+      ),
+    );
+    expect(result.matchedCount, 1);
+    expect(result.pairs.single.reason, contains('اختلاف رقم المستند'));
+  });
+
+  test('يوضح غياب مرجع أحد طرفي مطابقة البنك', () {
+    final result = engine.reconcile(
+      left: [tx('l', '2026-01-01', 100, doc: 'A1')],
+      right: [tx('r', '2026-01-01', 100)],
       settings: const ReconciliationSettings(mode: ReconciliationMode.bank),
     );
     expect(result.matchedCount, 1);
+    expect(result.pairs.single.reason, contains('غير متوفر في أحد الطرفين'));
   });
 
   test('يرفض اختلاف رقم المستند افتراضياً في مطابقة الأطراف', () {

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:matching/models/bank_reconciliation.dart';
+import 'package:matching/models/transaction_record.dart';
 import 'package:matching/services/bank_reconciliation_archive_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -162,5 +163,48 @@ void main() {
     final all = await archive.loadAll();
     expect(all, hasLength(1));
     expect(all.single.period, DateTime(2026, 6));
+  });
+
+  test('يحفظ قاعدة المرجع ونتيجة التحليل لإعادة التصدير', () async {
+    final matchingResult = ReconciliationResult(
+      pairs: [
+        MatchPair(
+          left: TransactionRecord(
+            id: 'book',
+            date: DateTime(2026, 7, 1),
+            amount: 10,
+          ),
+          right: TransactionRecord(
+            id: 'bank',
+            date: DateTime(2026, 7, 1),
+            amount: 10,
+          ),
+          status: MatchStatus.pending,
+          reason: 'اختلاف رقم المستند',
+          score: 80,
+        ),
+      ],
+      unmatchedRight: const [],
+    );
+    await archive.save(
+      BankReconciliationStatement(
+        accountName: 'البنك',
+        period: DateTime(2026, 7),
+        bankBalance: 10,
+        bookBalance: 10,
+        items: const [],
+        bookSourceName: 'دفاتر.xlsx',
+        bankSourceName: 'بنك.xlsx',
+        documentMismatchRule: DocumentMismatchRule.pending,
+        matchingResult: matchingResult,
+      ),
+    );
+
+    final restored = (await archive.loadAll()).single;
+    expect(restored.bookSourceName, 'دفاتر.xlsx');
+    expect(restored.bankSourceName, 'بنك.xlsx');
+    expect(restored.documentMismatchRule, DocumentMismatchRule.pending);
+    expect(restored.matchingResult?.pendingCount, 1);
+    expect(restored.matchingResult?.pairs.single.right?.id, 'bank');
   });
 }

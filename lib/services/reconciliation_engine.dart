@@ -189,9 +189,7 @@ class ReconciliationEngine {
       return _no(left, right, 'فرق التاريخ أكبر من المسموح', 5);
     }
 
-    if (settings.mode == ReconciliationMode.parties &&
-        bothHaveDocuments &&
-        leftDocument != rightDocument) {
+    if (bothHaveDocuments && leftDocument != rightDocument) {
       return switch (settings.documentMismatchRule) {
         DocumentMismatchRule.unmatched =>
           _no(left, right, 'اختلاف رقم المستند', 6),
@@ -214,7 +212,9 @@ class ReconciliationEngine {
 
     final reason = bothHaveDocuments
         ? 'تطابق رقم المستند والمبلغ'
-        : dateDifference == 0
+        : leftDocument.isEmpty != rightDocument.isEmpty
+            ? 'تطابق المبلغ والتاريخ — رقم المستند غير متوفر في أحد الطرفين'
+            : dateDifference == 0
             ? 'تطابق المبلغ والتاريخ'
             : 'تطابق المبلغ مع فرق تاريخ $dateDifference يوم';
     final sideText = settings.requireOppositeEntrySides

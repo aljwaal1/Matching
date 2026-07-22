@@ -110,10 +110,22 @@ class ArchivedReconciliation {
 
 class ArchiveService {
   static const _key = 'matching_archive_v2';
+  static const _legacyKey = 'matching_archive_v1';
+
+  Future<List<String>> _raw(SharedPreferences preferences) async {
+    final current = preferences.getStringList(_key);
+    if (current != null) return current;
+    final legacy = preferences.getStringList(_legacyKey) ?? const <String>[];
+    if (legacy.isNotEmpty) {
+      final saved = await preferences.setStringList(_key, legacy);
+      if (!saved) throw StateError('تعذر ترحيل الأرشيف القديم بأمان.');
+    }
+    return legacy;
+  }
 
   Future<List<ArchivedReconciliation>> load({String? type}) async {
     final preferences = await SharedPreferences.getInstance();
-    final raw = preferences.getStringList(_key) ?? const [];
+    final raw = await _raw(preferences);
     final items = <ArchivedReconciliation>[];
     for (final value in raw) {
       try {
@@ -131,22 +143,36 @@ class ArchiveService {
 
   Future<void> save(ArchivedReconciliation item) async {
     final preferences = await SharedPreferences.getInstance();
-    final items = await load();
-    items.removeWhere((existing) => existing.id == item.id);
-    items.add(item);
-    await preferences.setStringList(
-      _key,
-      items.map((value) => jsonEncode(value.toJson())).toList(),
-    );
+    final values = await _raw(preferences);
+    final updated = values.where((value) {
+      try {
+        return ArchivedReconciliation.fromJson(
+              Map<String, dynamic>.from(jsonDecode(value) as Map),
+            ).id !=
+            item.id;
+      } catch (_) {
+        return true;
+      }
+    }).toList()
+      ..add(jsonEncode(item.toJson()));
+    final saved = await preferences.setStringList(_key, updated);
+    if (!saved) throw StateError('تعذر حفظ النتيجة في الأرشيف.');
   }
 
   Future<void> delete(String id) async {
     final preferences = await SharedPreferences.getInstance();
-    final items = await load();
-    items.removeWhere((item) => item.id == id);
-    await preferences.setStringList(
-      _key,
-      items.map((value) => jsonEncode(value.toJson())).toList(),
-    );
+    final values = await _raw(preferences);
+    final updated = values.where((value) {
+      try {
+        return ArchivedReconciliation.fromJson(
+              Map<String, dynamic>.from(jsonDecode(value) as Map),
+            ).id !=
+            id;
+      } catch (_) {
+        return true;
+      }
+    }).toList();
+    final saved = await preferences.setStringList(_key, updated);
+    if (!saved) throw StateError('تعذر حذف النتيجة من الأرشيف.');
   }
 }
