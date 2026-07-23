@@ -5,6 +5,7 @@ import '../models/bank_reconciliation.dart';
 import '../models/transaction_record.dart';
 import '../services/bank_reconciliation_archive_service.dart';
 import '../services/bank_reconciliation_export_service.dart';
+import '../services/bank_reconciliation_resume_service.dart';
 import '../services/bank_reconciliation_service.dart';
 import '../widgets/operation_feedback.dart';
 
@@ -43,6 +44,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   late final TextEditingController _accountController;
   final _exporter = BankReconciliationExportService();
   final _archive = BankReconciliationArchiveService();
+  final _resumeService = const BankReconciliationResumeService();
   final _service = const BankReconciliationService();
   DateTime _period = DateTime(DateTime.now().year, DateTime.now().month);
   BankReconciliationStatement? _statement;
@@ -993,6 +995,11 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
           : 'جاري إنشاء تقرير Excel الشامل وفتح نافذة الحفظ...';
     });
     try {
+      await _resumeService.save(
+        firstName: widget.firstName,
+        secondName: widget.secondName,
+        statement: statement,
+      );
       final companyName = statement.bookSourceName.isEmpty
           ? widget.firstName
           : statement.bookSourceName;
@@ -1029,7 +1036,13 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      // If this State still exists, Android returned to the same screen and the
+      // recovery marker is no longer needed. If the route/process disappeared,
+      // keep it so HomeScreen can reopen this exact reconciliation.
+      if (mounted) {
+        await _resumeService.clear();
+        if (mounted) setState(() => _busy = false);
+      }
     }
   }
 

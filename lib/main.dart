@@ -13,6 +13,7 @@ import 'services/ad_service.dart';
 import 'services/export_service.dart';
 import 'services/file_import_service.dart';
 import 'services/reconciliation_engine.dart';
+import 'services/bank_reconciliation_resume_service.dart';
 import 'screens/bank_reconciliation_screen.dart';
 import 'screens/column_mapping_screen.dart';
 import 'screens/privacy_policy_screen.dart';
@@ -110,17 +111,65 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   static const _releaseBannerId =
       'ca-app-pub-3082968903080396/4266917179';
   static const _testBannerId = 'ca-app-pub-3940256099942544/9214589741';
   BannerAd? _banner;
   bool _bannerLoaded = false;
+  bool _checkingResume = false;
+  final _resumeService = const BankReconciliationResumeService();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _resumeInterruptedBankExport();
+    });
     if (widget.enableAds) _initializeBanner();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _resumeInterruptedBankExport();
+      });
+    }
+  }
+
+  Future<void> _resumeInterruptedBankExport() async {
+    if (_checkingResume || !mounted) return;
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+
+    _checkingResume = true;
+    try {
+      final data = await _resumeService.take();
+      if (!mounted || data == null || ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
+      final result = data.statement.matchingResult ??
+          const ReconciliationResult(pairs: [], unmatchedRight: []);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => Directionality(
+            textDirection: TextDirection.rtl,
+            child: BankReconciliationScreen(
+              firstName: data.firstName,
+              secondName: data.secondName,
+              result: result,
+              documentMismatchRule: data.statement.documentMismatchRule,
+              initialStatement: data.statement,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      _checkingResume = false;
+    }
   }
 
   Future<void> _initializeBanner() async {
@@ -143,6 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _banner?.dispose();
     super.dispose();
   }
