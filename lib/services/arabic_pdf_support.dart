@@ -24,7 +24,12 @@ class ArabicPdfFontData {
   final Uint8List bold;
 }
 
-Future<ArabicPdfFontData> loadArabicPdfFontData() async {
+Future<ArabicPdfFontData>? _cachedFontData;
+
+Future<ArabicPdfFontData> loadArabicPdfFontData() =>
+    _cachedFontData ??= _loadArabicPdfFontData();
+
+Future<ArabicPdfFontData> _loadArabicPdfFontData() async {
   final regularData = await rootBundle.load(
     'assets/fonts/NotoNaskhArabic-Regular.ttf',
   );
@@ -64,7 +69,7 @@ pw.TextStyle arabicPdfTextStyle(
       fontSize: fontSize,
       fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
       color: color,
-      lineSpacing: 1.5,
+      lineSpacing: 1.35,
     );
 
 pw.Widget arabicPdfText(
