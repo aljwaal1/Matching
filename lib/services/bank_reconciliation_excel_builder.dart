@@ -14,7 +14,6 @@ class BankReconciliationExcelBuilder {
     required BankReconciliationStatement statement,
   }) {
     final workbook = Excel.createExcel();
-    workbook.delete('Sheet1');
 
     final activeBankItems = statement.items
         .where((item) => item.adjustBankBalance && item.includedInCalculation)
@@ -38,6 +37,8 @@ class BankReconciliationExcelBuilder {
         .where((item) => item.status == BankItemStatus.carryForward)
         .toList(growable: false);
 
+    // أنشئ أول ورقة فعلية قبل حذف Sheet1. حذف الورقة الافتراضية وهي
+    // الورقة الوحيدة قد يجعل بعض إصدارات مكتبة Excel تعيد إنشاءها فارغة.
     _buildSummary(
       workbook['ملخص التسوية'],
       companyName: companyName,
@@ -46,21 +47,44 @@ class BankReconciliationExcelBuilder {
       bankItems: activeBankItems,
       bookItems: activeBookItems,
     );
-    _buildItemsSheet(workbook['معلقات كشف البنك'], bankPending);
-    _buildItemsSheet(workbook['معلقات دفاتر الشركة'], bookPending);
-    _buildItemsSheet(workbook['تحتاج مراجعة'], reviewItems, includeSide: true);
-    _buildItemsSheet(
-      workbook['المرحل للشهر القادم'],
-      carried,
-      includeSide: true,
-    );
+    workbook.delete('Sheet1');
+
+    // لا ننشئ أي ورقة لا تحتوي عمليات فعلية.
+    if (bankPending.isNotEmpty) {
+      _buildItemsSheet(workbook['معلقات كشف البنك'], bankPending);
+    }
+    if (bookPending.isNotEmpty) {
+      _buildItemsSheet(workbook['معلقات دفاتر الشركة'], bookPending);
+    }
+    if (reviewItems.isNotEmpty) {
+      _buildItemsSheet(
+        workbook['تحتاج مراجعة'],
+        reviewItems,
+        includeSide: true,
+      );
+    }
+    if (carried.isNotEmpty) {
+      _buildItemsSheet(
+        workbook['المرحل للشهر القادم'],
+        carried,
+        includeSide: true,
+      );
+    }
     final matchingResult = statement.matchingResult;
-    if (matchingResult != null) {
+    if (matchingResult != null &&
+        (matchingResult.pairs.isNotEmpty ||
+            matchingResult.unmatchedRight.isNotEmpty)) {
       _buildMatchingSheet(workbook['تحليل المطابقة'], matchingResult);
     }
 
     final bytes = workbook.encode();
-    if (bytes == null) throw Exception('تعذر إنشاء ملف Excel للتسوية.');
+    if (bytes == null ||
+        bytes.isEmpty ||
+        bytes.length < 4 ||
+        bytes[0] != 0x50 ||
+        bytes[1] != 0x4B) {
+      throw StateError('تعذر إنشاء ملف Excel صالح للتسوية.');
+    }
     return bytes;
   }
 
