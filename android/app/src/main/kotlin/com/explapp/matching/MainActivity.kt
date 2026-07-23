@@ -15,6 +15,7 @@ class MainActivity : FlutterActivity() {
         private const val CREATE_REPORT_REQUEST_CODE = 47021
         private const val VERIFY_RETRIES = 10
         private const val VERIFY_DELAY_MS = 200L
+        private const val SUPPORT_EMAIL = "fastunlocked2017@gmail.com"
     }
 
     private var pendingSaveResult: MethodChannel.Result? = null
@@ -34,12 +35,17 @@ class MainActivity : FlutterActivity() {
                     ?.takeIf { it.isNotEmpty() }
                     ?: "ملاحظات تطبيق مطابقة الحسابات"
                 val body = call.argument<String>("body")?.trim().orEmpty()
-                val emailUri = Uri.parse("mailto:fastunlocked2017@gmail.com")
-                    .buildUpon()
-                    .appendQueryParameter("subject", subject)
-                    .appendQueryParameter("body", body)
-                    .build()
-                val intent = Intent(Intent.ACTION_SENDTO, emailUri)
+                val emailUri = Uri.parse(
+                    "mailto:$SUPPORT_EMAIL" +
+                        "?subject=${Uri.encode(subject)}" +
+                        "&body=${Uri.encode(body)}",
+                )
+                val intent = Intent(Intent.ACTION_SENDTO).apply {
+                    data = emailUri
+                    putExtra(Intent.EXTRA_EMAIL, arrayOf(SUPPORT_EMAIL))
+                    putExtra(Intent.EXTRA_SUBJECT, subject)
+                    putExtra(Intent.EXTRA_TEXT, body)
+                }
 
                 if (intent.resolveActivity(packageManager) == null) {
                     result.error(
