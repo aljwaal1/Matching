@@ -15,8 +15,11 @@ class BankReconciliationPdfBuilder {
     required String companyName,
     required String bankName,
     required BankReconciliationStatement statement,
+    ArabicPdfFontData? fontData,
   }) async {
-    final fonts = await loadArabicPdfFonts();
+    final fonts = fontData == null
+        ? await loadArabicPdfFonts()
+        : arabicPdfFontsFromData(fontData);
     final document = pw.Document(theme: arabicPdfTheme(fonts));
 
     final activeBankItems = statement.items
@@ -40,6 +43,7 @@ class BankReconciliationPdfBuilder {
     final carried = statement.items
         .where((item) => item.status == BankItemStatus.carryForward)
         .toList(growable: false);
+    final matchingResult = statement.matchingResult;
 
     document.addPage(
       pw.MultiPage(
@@ -115,9 +119,9 @@ class BankReconciliationPdfBuilder {
               includeSide: true,
             ),
           ],
-          if (statement.matchingResult != null) ...[
+          if (matchingResult != null) ...[
             pw.NewPage(),
-            _matchingAnalysis(fonts, statement.matchingResult!),
+            _matchingAnalysis(fonts, matchingResult),
           ],
         ],
       ),
@@ -532,12 +536,13 @@ class BankReconciliationPdfBuilder {
   String _transactionDetail(TransactionRecord? item) {
     if (item == null) return 'لا توجد عملية مقابلة';
     final document = item.documentNumber?.trim();
+    final balance = item.balance;
     return 'التاريخ: ${_date(item.date)}\n'
         'المستند: ${document == null || document.isEmpty ? '-' : document}\n'
         'البيان: ${item.description.trim().isEmpty ? '-' : item.description}\n'
         'المدين: ${item.side == EntrySide.debit ? _money(item.amount) : '0.00'}\n'
         'الدائن: ${item.side == EntrySide.credit ? _money(item.amount) : '0.00'}\n'
-        'الرصيد: ${item.balance == null ? '-' : _money(item.balance!)}';
+        'الرصيد: ${balance == null ? '-' : _money(balance)}';
   }
 
   String _statusLabel(MatchStatus status) => switch (status) {

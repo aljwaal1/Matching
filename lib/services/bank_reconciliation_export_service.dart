@@ -2,10 +2,10 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../models/bank_reconciliation.dart';
+import 'arabic_pdf_support.dart';
 import 'bank_reconciliation_excel_builder.dart';
 import 'bank_reconciliation_pdf_builder.dart';
 import 'file_save_service.dart';
@@ -46,10 +46,7 @@ class BankReconciliationExportService {
     required String bankName,
     required BankReconciliationStatement statement,
   }) async {
-    final rootToken = RootIsolateToken.instance;
-    if (kIsWeb ||
-        rootToken == null ||
-        pdfBuilder.runtimeType != BankReconciliationPdfBuilder) {
+    if (kIsWeb || pdfBuilder.runtimeType != BankReconciliationPdfBuilder) {
       return pdfBuilder.build(
         companyName: companyName,
         bankName: bankName,
@@ -57,15 +54,26 @@ class BankReconciliationExportService {
       );
     }
 
+    // rootBundle must stay on the root isolate. Only raw bytes and plain JSON
+    // are passed to the worker, avoiding BackgroundIsolateBinaryMessenger null
+    // failures seen after restoring an archived reconciliation.
+    final fontData = await loadArabicPdfFontData();
+    final regularFont = TransferableTypedData.fromList([fontData.regular]);
+    final boldFont = TransferableTypedData.fromList([fontData.bold]);
     final statementJson = statement.toJson();
+
     return Isolate.run<Uint8List>(() async {
-      BackgroundIsolateBinaryMessenger.ensureInitialized(rootToken);
+      final isolatedFonts = ArabicPdfFontData(
+        regular: regularFont.materialize().asUint8List(),
+        bold: boldFont.materialize().asUint8List(),
+      );
       return const BankReconciliationPdfBuilder().build(
         companyName: companyName,
         bankName: bankName,
         statement: BankReconciliationStatement.fromJson(
           Map<String, dynamic>.from(statementJson),
         ),
+        fontData: isolatedFonts,
       );
     });
   }

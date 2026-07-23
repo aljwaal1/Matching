@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -15,7 +17,14 @@ class ArabicPdfFonts {
   final pw.Font latinBold;
 }
 
-Future<ArabicPdfFonts> loadArabicPdfFonts() async {
+class ArabicPdfFontData {
+  const ArabicPdfFontData({required this.regular, required this.bold});
+
+  final Uint8List regular;
+  final Uint8List bold;
+}
+
+Future<ArabicPdfFontData> loadArabicPdfFontData() async {
   final regularData = await rootBundle.load(
     'assets/fonts/NotoNaskhArabic-Regular.ttf',
   );
@@ -23,11 +32,19 @@ Future<ArabicPdfFonts> loadArabicPdfFonts() async {
     'assets/fonts/NotoNaskhArabic-Bold.ttf',
   );
 
-  return ArabicPdfFonts(
-    regular: pw.Font.ttf(ByteData.sublistView(regularData)),
-    bold: pw.Font.ttf(ByteData.sublistView(boldData)),
+  return ArabicPdfFontData(
+    regular: Uint8List.sublistView(regularData),
+    bold: Uint8List.sublistView(boldData),
   );
 }
+
+ArabicPdfFonts arabicPdfFontsFromData(ArabicPdfFontData data) => ArabicPdfFonts(
+      regular: pw.Font.ttf(ByteData.sublistView(data.regular)),
+      bold: pw.Font.ttf(ByteData.sublistView(data.bold)),
+    );
+
+Future<ArabicPdfFonts> loadArabicPdfFonts() async =>
+    arabicPdfFontsFromData(await loadArabicPdfFontData());
 
 pw.ThemeData arabicPdfTheme(ArabicPdfFonts fonts) => pw.ThemeData.withFont(
       base: fonts.regular,
