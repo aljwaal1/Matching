@@ -13,6 +13,10 @@ class SavedReport {
   final String location;
 }
 
+@visibleForTesting
+bool usesNativeAndroidWriterForExtension(String extension) =>
+    extension.trim().toLowerCase() == 'pdf';
+
 class FileSaveService {
   const FileSaveService();
 
@@ -29,12 +33,13 @@ class FileSaveService {
     }
     final safeName = _safeFileName(fileName, extension);
     final isAndroid = !kIsWeb && Platform.isAndroid;
+    final useNativeAndroidWriter =
+        isAndroid && usesNativeAndroidWriterForExtension(extension);
     final preferences = await SharedPreferences.getInstance();
     final locationKey = _locationKey(safeName);
 
     // على Android لا نعيد استخدام URI قديم تلقائيًا. بعض مديري الملفات
     // يحتفظون بالإذن شكليًا ثم يفرغون الملف عند محاولة الكتابة اللاحقة.
-    // فتح نافذة الحفظ كل مرة يمنع تحويل ملف سابق إلى صفر بايت.
     if (!isAndroid) {
       final previousLocation = preferences.getString(locationKey);
       if (previousLocation != null) {
@@ -48,13 +53,18 @@ class FileSaveService {
     }
 
     final SavedReport? saved;
-    if (isAndroid) {
+    if (useNativeAndroidWriter) {
+      // PDF فقط يستخدم كاتب Android الأصلي، لأنه يحتاج مسارًا لا يحجب
+      // واجهة Flutter عند الملفات الكبيرة.
       saved = await _createAndWriteOnAndroid(
         bytes: bytes,
         fileName: safeName,
         extension: extension,
       );
     } else {
+      // Excel يعود إلى المسار الذي كان يعمل قبل تعديل PDF: file_picker
+      // يكتب البيانات مباشرة أثناء إنشاء المستند. لا نعيد فتح الملف للكتابة
+      // مرة ثانية، لأن إعادة فتح URI هي التي صفّرت ملفات XLSX على بعض الأجهزة.
       final location = await FilePicker.platform.saveFile(
         dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
         fileName: safeName,
@@ -97,8 +107,6 @@ class FileSaveService {
       throw StateError('لم يرجع مدير الملفات موقعًا صالحًا للحفظ.');
     }
 
-    // لا نكتفي بالحجم الذي تعيده عملية الكتابة؛ نعيد فتح الملف وقراءته
-    // عدة مرات. هذا يمنع إعلان النجاح بينما الملف الفعلي ما زال صفر بايت.
     await _verifyExistingWithRetries(location, bytes.length);
     return SavedReport(fileName: fileName, location: location);
   }
