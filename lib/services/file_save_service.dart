@@ -28,20 +28,27 @@ class FileSaveService {
       throw StateError('تعذر إنشاء التقرير: الملف الناتج فارغ.');
     }
     final safeName = _safeFileName(fileName, extension);
+    final isAndroid = !kIsWeb && Platform.isAndroid;
     final preferences = await SharedPreferences.getInstance();
     final locationKey = _locationKey(safeName);
-    final previousLocation = preferences.getString(locationKey);
-    if (previousLocation != null) {
-      try {
-        await _writeAndVerify(previousLocation, bytes);
-        return SavedReport(fileName: safeName, location: previousLocation);
-      } catch (_) {
-        await preferences.remove(locationKey);
+
+    // على Android لا نعيد استخدام URI قديم تلقائيًا. بعض مديري الملفات
+    // يحتفظون بالإذن شكليًا ثم يفرغون الملف عند محاولة الكتابة اللاحقة.
+    // فتح نافذة الحفظ كل مرة يمنع تحويل ملف سابق إلى صفر بايت.
+    if (!isAndroid) {
+      final previousLocation = preferences.getString(locationKey);
+      if (previousLocation != null) {
+        try {
+          await _writeAndVerify(previousLocation, bytes);
+          return SavedReport(fileName: safeName, location: previousLocation);
+        } catch (_) {
+          await preferences.remove(locationKey);
+        }
       }
     }
 
     final SavedReport? saved;
-    if (!kIsWeb && Platform.isAndroid) {
+    if (isAndroid) {
       saved = await _createAndWriteOnAndroid(
         bytes: bytes,
         fileName: safeName,
@@ -56,14 +63,16 @@ class FileSaveService {
         bytes: bytes,
       );
       if (location == null) return null;
-      await _verifyExisting(location, bytes.length);
+      await _verifyExistingWithRetries(location, bytes.length);
       saved = SavedReport(fileName: safeName, location: location);
     }
 
     if (saved == null) return null;
-    final remembered = await preferences.setString(locationKey, saved.location);
-    if (!remembered) {
-      throw StateError('تم إنشاء الملف، لكن تعذر حفظ موقعه للتحديث اللاحق.');
+    if (!isAndroid) {
+      final remembered = await preferences.setString(locationKey, saved.location);
+      if (!remembered) {
+        throw StateError('تم إنشاء الملف، لكن تعذر حفظ موقعه للتحديث اللاحق.');
+      }
     }
     return saved;
   }
@@ -84,11 +93,13 @@ class FileSaveService {
     if (response == null) return null;
 
     final location = response['location'] as String?;
-    final size = (response['size'] as num?)?.toInt() ?? -1;
     if (location == null || location.trim().isEmpty) {
       throw StateError('لم يرجع مدير الملفات موقعًا صالحًا للحفظ.');
     }
-    _ensureExpectedSize(size, bytes.length);
+
+    // لا نكتفي بالحجم الذي تعيده عملية الكتابة؛ نعيد فتح الملف وقراءته
+    // عدة مرات. هذا يمنع إعلان النجاح بينما الملف الفعلي ما زال صفر بايت.
+    await _verifyExistingWithRetries(location, bytes.length);
     return SavedReport(fileName: fileName, location: location);
   }
 
@@ -108,6 +119,28 @@ class FileSaveService {
       return;
     }
     _ensureExpectedSize(size, bytes.length);
+  }
+
+  Future<void> _verifyExistingWithRetries(
+    String location,
+    int expectedSize,
+  ) async {
+    Object? lastError;
+    for (var attempt = 0; attempt < 12; attempt++) {
+      try {
+        await _verifyExisting(location, expectedSize);
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 11) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+      }
+    }
+    throw StateError(
+      'فشل التحقق من الملف بعد الحفظ. لم يثبت أن حجمه يساوي '
+      '$expectedSize بايت. التفاصيل: $lastError',
+    );
   }
 
   Future<void> _verifyExisting(String location, int expectedSize) async {
