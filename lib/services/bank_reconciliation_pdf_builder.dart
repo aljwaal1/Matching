@@ -8,8 +8,19 @@ import '../models/bank_reconciliation.dart';
 import '../models/transaction_record.dart';
 import 'arabic_pdf_support.dart';
 
+typedef _MatchingPdfRow = ({
+  MatchStatus status,
+  String reason,
+  double score,
+  TransactionRecord? left,
+  TransactionRecord? right,
+});
+
 class BankReconciliationPdfBuilder {
   const BankReconciliationPdfBuilder();
+
+  static const int _detailChunkSize = 12;
+  static const int _matchingChunkSize = 6;
 
   Future<Uint8List> build({
     required String companyName,
@@ -45,13 +56,70 @@ class BankReconciliationPdfBuilder {
         .toList(growable: false);
     final matchingResult = statement.matchingResult;
 
+    final widgets = <pw.Widget>[
+      _header(fonts, companyName, bankName, statement),
+      pw.SizedBox(height: 14),
+      _summarySection(
+        fonts: fonts,
+        title: 'أولًا: ملخص تسوية رصيد كشف البنك',
+        openingLabel: 'الرصيد حسب كشف البنك',
+        openingBalance: statement.bankBalance,
+        items: activeBankItems,
+        closingLabel: 'الرصيد المعدل حسب كشف البنك',
+        closingBalance: statement.adjustedBankBalance,
+        color: PdfColor.fromHex('#00A9C8'),
+      ),
+      pw.SizedBox(height: 14),
+      _summarySection(
+        fonts: fonts,
+        title: 'ثانيًا: ملخص تسوية رصيد دفاتر الشركة',
+        openingLabel: 'الرصيد حسب دفاتر الشركة',
+        openingBalance: statement.bookBalance,
+        items: activeBookItems,
+        closingLabel: 'الرصيد المعدل حسب دفاتر الشركة',
+        closingBalance: statement.adjustedBookBalance,
+        color: PdfColor.fromHex('#6D4CFF'),
+      ),
+      pw.SizedBox(height: 14),
+      _finalResult(fonts, statement),
+      ..._detailPages(
+        fonts: fonts,
+        title: 'معلقات كشف البنك',
+        items: bankPending,
+        color: PdfColor.fromHex('#00A9C8'),
+      ),
+      ..._detailPages(
+        fonts: fonts,
+        title: 'معلقات دفاتر الشركة',
+        items: bookPending,
+        color: PdfColor.fromHex('#6D4CFF'),
+      ),
+      if (reviewItems.isNotEmpty)
+        ..._detailPages(
+          fonts: fonts,
+          title: 'بنود تحتاج مراجعة',
+          items: reviewItems,
+          color: PdfColor.fromHex('#B45309'),
+          includeSide: true,
+        ),
+      if (carried.isNotEmpty)
+        ..._detailPages(
+          fonts: fonts,
+          title: 'البنود المرحلة للشهر القادم',
+          items: carried,
+          color: PdfColor.fromHex('#D97706'),
+          includeSide: true,
+        ),
+      if (matchingResult != null) ..._matchingPages(fonts, matchingResult),
+    ];
+
     document.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(24, 22, 24, 28),
         textDirection: pw.TextDirection.rtl,
         theme: arabicPdfTheme(fonts),
-        maxPages: 100,
+        maxPages: 250,
         footer: (context) => arabicPdfText(
           'الصفحة ${context.pageNumber} من ${context.pagesCount}',
           fonts,
@@ -59,75 +127,99 @@ class BankReconciliationPdfBuilder {
           color: PdfColors.grey700,
           textAlign: pw.TextAlign.center,
         ),
-        build: (_) => [
-          _header(fonts, companyName, bankName, statement),
-          pw.SizedBox(height: 14),
-          _summarySection(
-            fonts: fonts,
-            title: 'أولًا: ملخص تسوية رصيد كشف البنك',
-            openingLabel: 'الرصيد حسب كشف البنك',
-            openingBalance: statement.bankBalance,
-            items: activeBankItems,
-            closingLabel: 'الرصيد المعدل حسب كشف البنك',
-            closingBalance: statement.adjustedBankBalance,
-            color: PdfColor.fromHex('#00A9C8'),
-          ),
-          pw.SizedBox(height: 14),
-          _summarySection(
-            fonts: fonts,
-            title: 'ثانيًا: ملخص تسوية رصيد دفاتر الشركة',
-            openingLabel: 'الرصيد حسب دفاتر الشركة',
-            openingBalance: statement.bookBalance,
-            items: activeBookItems,
-            closingLabel: 'الرصيد المعدل حسب دفاتر الشركة',
-            closingBalance: statement.adjustedBookBalance,
-            color: PdfColor.fromHex('#6D4CFF'),
-          ),
-          pw.SizedBox(height: 14),
-          _finalResult(fonts, statement),
-          pw.NewPage(),
-          _detailSection(
-            fonts: fonts,
-            title: 'معلقات كشف البنك',
-            items: bankPending,
-            color: PdfColor.fromHex('#00A9C8'),
-          ),
-          pw.SizedBox(height: 16),
-          _detailSection(
-            fonts: fonts,
-            title: 'معلقات دفاتر الشركة',
-            items: bookPending,
-            color: PdfColor.fromHex('#6D4CFF'),
-          ),
-          if (reviewItems.isNotEmpty) ...[
-            pw.SizedBox(height: 16),
-            _detailSection(
-              fonts: fonts,
-              title: 'بنود تحتاج مراجعة',
-              items: reviewItems,
-              color: PdfColor.fromHex('#B45309'),
-              includeSide: true,
-            ),
-          ],
-          if (carried.isNotEmpty) ...[
-            pw.NewPage(),
-            _detailSection(
-              fonts: fonts,
-              title: 'البنود المرحلة للشهر القادم',
-              items: carried,
-              color: PdfColor.fromHex('#D97706'),
-              includeSide: true,
-            ),
-          ],
-          if (matchingResult != null) ...[
-            pw.NewPage(),
-            _matchingAnalysis(fonts, matchingResult),
-          ],
-        ],
+        build: (_) => widgets,
       ),
     );
 
     return document.save();
+  }
+
+  List<pw.Widget> _detailPages({
+    required ArabicPdfFonts fonts,
+    required String title,
+    required List<BankAdjustmentItem> items,
+    required PdfColor color,
+    bool includeSide = false,
+  }) {
+    final chunks = _chunk(items, _detailChunkSize);
+    final pages = chunks.isEmpty
+        ? <List<BankAdjustmentItem>>[const <BankAdjustmentItem>[]]
+        : chunks;
+    final total = items.fold<double>(
+      0,
+      (sum, item) => sum + (item.add ? item.amount : -item.amount),
+    );
+
+    return <pw.Widget>[
+      for (var index = 0; index < pages.length; index++) ...[
+        pw.NewPage(),
+        _detailSection(
+          fonts: fonts,
+          title: pages.length == 1
+              ? title
+              : '$title - الجزء ${index + 1} من ${pages.length}',
+          items: pages[index],
+          color: color,
+          includeSide: includeSide,
+          showTotal: index == pages.length - 1,
+          totalOverride: total,
+        ),
+      ],
+    ];
+  }
+
+  List<pw.Widget> _matchingPages(
+    ArabicPdfFonts fonts,
+    ReconciliationResult result,
+  ) {
+    final rows = <_MatchingPdfRow>[
+      ...result.pairs.map(
+        (pair) => (
+          status: pair.status,
+          reason: pair.reason,
+          score: pair.score,
+          left: pair.left,
+          right: pair.right,
+        ),
+      ),
+      ...result.unmatchedRight.map(
+        (right) => (
+          status: MatchStatus.unmatched,
+          reason: 'غير موجودة في دفاتر الشركة',
+          score: 0,
+          left: null,
+          right: right,
+        ),
+      ),
+    ];
+    final chunks = _chunk(rows, _matchingChunkSize);
+    final pages = chunks.isEmpty
+        ? <List<_MatchingPdfRow>>[const <_MatchingPdfRow>[]]
+        : chunks;
+
+    return <pw.Widget>[
+      for (var index = 0; index < pages.length; index++) ...[
+        pw.NewPage(),
+        _matchingAnalysisPage(
+          fonts: fonts,
+          result: result,
+          rows: pages[index],
+          pageIndex: index,
+          pageCount: pages.length,
+        ),
+      ],
+    ];
+  }
+
+  List<List<T>> _chunk<T>(List<T> values, int size) {
+    if (values.isEmpty) return const [];
+    return <List<T>>[
+      for (var start = 0; start < values.length; start += size)
+        values.sublist(
+          start,
+          start + size > values.length ? values.length : start + size,
+        ),
+    ];
   }
 
   pw.Widget _header(
@@ -177,90 +269,76 @@ class BankReconciliationPdfBuilder {
         ),
       );
 
-  pw.Widget _matchingAnalysis(
-    ArabicPdfFonts fonts,
-    ReconciliationResult result,
-  ) {
-    final rows = <({
-      MatchStatus status,
-      String reason,
-      double score,
-      TransactionRecord? left,
-      TransactionRecord? right,
-    })>[
-      ...result.pairs.map(
-        (pair) => (
-          status: pair.status,
-          reason: pair.reason,
-          score: pair.score,
-          left: pair.left,
-          right: pair.right,
-        ),
-      ),
-      ...result.unmatchedRight.map(
-        (right) => (
-          status: MatchStatus.unmatched,
-          reason: 'غير موجودة في دفاتر الشركة',
-          score: 0,
-          left: null,
-          right: right,
-        ),
-      ),
-    ];
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-      children: [
-        arabicPdfText(
-          'التحليل الرقابي للمطابقة',
-          fonts,
-          fontSize: 16,
-          bold: true,
-          textAlign: pw.TextAlign.center,
-        ),
-        pw.SizedBox(height: 6),
-        arabicPdfText(
-          'متطابقة: ${result.matchedCount} — معلقة: ${result.pendingCount} — غير متطابقة: ${result.unmatchedCount}',
-          fonts,
-          textAlign: pw.TextAlign.center,
-        ),
-        pw.SizedBox(height: 10),
-        pw.Table(
-          border: pw.TableBorder.all(color: PdfColors.grey500, width: 0.4),
-          columnWidths: const {
-            0: pw.FlexColumnWidth(1.1),
-            1: pw.FlexColumnWidth(2.0),
-            2: pw.FlexColumnWidth(3.4),
-            3: pw.FlexColumnWidth(3.4),
-          },
-          children: [
-            pw.TableRow(
-              repeat: true,
-              decoration: pw.BoxDecoration(color: PdfColor.fromHex('#DCD2FF')),
+  pw.Widget _matchingAnalysisPage({
+    required ArabicPdfFonts fonts,
+    required ReconciliationResult result,
+    required List<_MatchingPdfRow> rows,
+    required int pageIndex,
+    required int pageCount,
+  }) =>
+      pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          arabicPdfText(
+            pageCount == 1
+                ? 'التحليل الرقابي للمطابقة'
+                : 'التحليل الرقابي للمطابقة - الجزء ${pageIndex + 1} من $pageCount',
+            fonts,
+            fontSize: 16,
+            bold: true,
+            textAlign: pw.TextAlign.center,
+          ),
+          pw.SizedBox(height: 6),
+          if (pageIndex == 0)
+            arabicPdfText(
+              'متطابقة: ${result.matchedCount} - معلقة: ${result.pendingCount} - غير متطابقة: ${result.unmatchedCount}',
+              fonts,
+              textAlign: pw.TextAlign.center,
+            ),
+          if (pageIndex == 0) pw.SizedBox(height: 10),
+          if (rows.isEmpty)
+            _emptySection(fonts, 'لا توجد عمليات مطابقة لعرضها.')
+          else
+            pw.Table(
+              border: pw.TableBorder.all(
+                color: PdfColors.grey500,
+                width: 0.4,
+              ),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(1.1),
+                1: pw.FlexColumnWidth(2.0),
+                2: pw.FlexColumnWidth(3.4),
+                3: pw.FlexColumnWidth(3.4),
+              },
               children: [
-                _cell(fonts, 'الحالة', bold: true, center: true),
-                _cell(fonts, 'السبب والدرجة', bold: true, center: true),
-                _cell(fonts, 'دفاتر الشركة', bold: true, center: true),
-                _cell(fonts, 'كشف البنك', bold: true, center: true),
+                pw.TableRow(
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromHex('#DCD2FF'),
+                  ),
+                  children: [
+                    _cell(fonts, 'الحالة', bold: true, center: true),
+                    _cell(fonts, 'السبب والدرجة', bold: true, center: true),
+                    _cell(fonts, 'دفاتر الشركة', bold: true, center: true),
+                    _cell(fonts, 'كشف البنك', bold: true, center: true),
+                  ],
+                ),
+                ...rows.map(
+                  (row) => pw.TableRow(
+                    children: [
+                      _cell(fonts, _statusLabel(row.status), center: true),
+                      _cell(
+                        fonts,
+                        '${row.reason}\nدرجة المطابقة: ${row.score.toStringAsFixed(1)}%',
+                      ),
+                      _cell(fonts, _transactionDetail(row.left)),
+                      _cell(fonts, _transactionDetail(row.right)),
+                    ],
+                  ),
+                ),
               ],
             ),
-            ...rows.map(
-              (row) => pw.TableRow(
-                children: [
-                  _cell(fonts, _statusLabel(row.status), center: true),
-                  _cell(
-                    fonts,
-                    '${row.reason}\nدرجة المطابقة: ${row.score.toStringAsFixed(1)}%',
-                  ),
-                  _cell(fonts, _transactionDetail(row.left)),
-                  _cell(fonts, _transactionDetail(row.right)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
+        ],
+      );
 
   pw.Widget _summarySection({
     required ArabicPdfFonts fonts,
@@ -281,11 +359,16 @@ class BankReconciliationPdfBuilder {
       },
       children: [
         pw.TableRow(
-          repeat: true,
           decoration: pw.BoxDecoration(color: color),
           children: [
             _cell(fonts, title, bold: true, color: PdfColors.white, center: true),
-            _cell(fonts, 'المبلغ', bold: true, color: PdfColors.white, center: true),
+            _cell(
+              fonts,
+              'المبلغ',
+              bold: true,
+              color: PdfColors.white,
+              center: true,
+            ),
           ],
         ),
         _amountRow(fonts, openingLabel, openingBalance, bold: true),
@@ -307,6 +390,8 @@ class BankReconciliationPdfBuilder {
     required List<BankAdjustmentItem> items,
     required PdfColor color,
     bool includeSide = false,
+    bool showTotal = true,
+    double? totalOverride,
   }) {
     final headers = <String>[
       'التاريخ',
@@ -343,25 +428,19 @@ class BankReconciliationPdfBuilder {
           ),
         ),
         if (items.isEmpty)
-          pw.Container(
-            padding: const pw.EdgeInsets.all(14),
-            decoration: pw.BoxDecoration(
-              border: pw.Border.all(color: PdfColors.grey400),
-            ),
-            child: arabicPdfText(
-              'لا توجد بنود في هذا القسم.',
-              fonts,
-              textAlign: pw.TextAlign.center,
-            ),
-          )
+          _emptySection(fonts, 'لا توجد بنود في هذا القسم.')
         else
           pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.45),
+            border: pw.TableBorder.all(
+              color: PdfColors.grey400,
+              width: 0.45,
+            ),
             columnWidths: widths,
             children: [
               pw.TableRow(
-                repeat: true,
-                decoration: pw.BoxDecoration(color: PdfColor.fromHex('#E8EAF0')),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromHex('#E8EAF0'),
+                ),
                 children: headers
                     .map(
                       (value) => _cell(
@@ -407,33 +486,52 @@ class BankReconciliationPdfBuilder {
                   ],
                 );
               }),
-              pw.TableRow(
-                decoration: pw.BoxDecoration(color: PdfColor.fromHex('#FFF3D6')),
-                children: List<pw.Widget>.generate(
-                  headers.length,
-                  (index) => _cell(
-                    fonts,
-                    index == 2
-                        ? 'الإجمالي'
-                        : index == amountColumn
-                            ? _money(
-                                items.fold<double>(
-                                  0,
-                                  (sum, item) =>
-                                      sum + (item.add ? item.amount : -item.amount),
-                                ),
-                              )
-                            : '',
-                    bold: true,
-                    center: index == amountColumn,
+              if (showTotal)
+                pw.TableRow(
+                  decoration: pw.BoxDecoration(
+                    color: PdfColor.fromHex('#FFF3D6'),
+                  ),
+                  children: List<pw.Widget>.generate(
+                    headers.length,
+                    (index) => _cell(
+                      fonts,
+                      index == 2
+                          ? 'الإجمالي'
+                          : index == amountColumn
+                              ? _money(
+                                  totalOverride ??
+                                      items.fold<double>(
+                                        0,
+                                        (sum, item) =>
+                                            sum +
+                                            (item.add
+                                                ? item.amount
+                                                : -item.amount),
+                                      ),
+                                )
+                              : '',
+                      bold: true,
+                      center: index == amountColumn,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
       ],
     );
   }
+
+  pw.Widget _emptySection(ArabicPdfFonts fonts, String text) => pw.Container(
+        padding: const pw.EdgeInsets.all(14),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.grey400),
+        ),
+        child: arabicPdfText(
+          text,
+          fonts,
+          textAlign: pw.TextAlign.center,
+        ),
+      );
 
   List<_SummaryLine> _aggregate(List<BankAdjustmentItem> items) {
     final totals = <BankDifferenceType, double>{};
@@ -480,11 +578,11 @@ class BankReconciliationPdfBuilder {
     bool center = false,
   }) =>
       pw.Padding(
-        padding: const pw.EdgeInsets.all(6),
+        padding: const pw.EdgeInsets.all(5),
         child: arabicPdfText(
           text.trim().isEmpty ? '-' : text,
           fonts,
-          fontSize: 8.6,
+          fontSize: 8.2,
           bold: bold,
           color: color,
           textAlign: center ? pw.TextAlign.center : pw.TextAlign.right,
@@ -536,12 +634,14 @@ class BankReconciliationPdfBuilder {
   String _transactionDetail(TransactionRecord? item) {
     if (item == null) return 'لا توجد عملية مقابلة';
     final document = item.documentNumber?.trim();
+    final description = item.description.trim();
     final balance = item.balance;
-    return 'التاريخ: ${_date(item.date)}\n'
-        'المستند: ${document == null || document.isEmpty ? '-' : document}\n'
-        'البيان: ${item.description.trim().isEmpty ? '-' : item.description}\n'
-        'المدين: ${item.side == EntrySide.debit ? _money(item.amount) : '0.00'}\n'
-        'الدائن: ${item.side == EntrySide.credit ? _money(item.amount) : '0.00'}\n'
+    final debit = item.side == EntrySide.debit ? _money(item.amount) : '0.00';
+    final credit = item.side == EntrySide.credit ? _money(item.amount) : '0.00';
+    return 'التاريخ: ${_date(item.date)} | المستند: '
+        '${document == null || document.isEmpty ? '-' : document}\n'
+        'البيان: ${description.isEmpty ? '-' : description}\n'
+        'مدين: $debit | دائن: $credit | '
         'الرصيد: ${balance == null ? '-' : _money(balance)}';
   }
 
