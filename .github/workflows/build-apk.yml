@@ -5,7 +5,9 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'update/**'
     paths-ignore:
       - 'apk/**'
       - 'google-play/Matching.aab'
@@ -16,7 +18,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: matching-main-build
+  group: matching-${{ github.ref_name }}-build
   cancel-in-progress: true
 
 jobs:
@@ -34,6 +36,11 @@ jobs:
       - name: Apply guarded balance detection upgrade
         run: python3 tool/run_balance_detection_patch.py
 
+      - name: Apply Matching 1.3.0 UI upgrade
+        run: |
+          python3 tool/apply_v130_update.py
+          git diff --check
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -43,6 +50,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: '3.44.7'
           channel: stable
           cache: true
 
@@ -57,15 +65,6 @@ jobs:
             --output assets/fonts/NotoNaskhArabic-Bold.ttf
           test -s assets/fonts/NotoNaskhArabic-Regular.ttf
           test -s assets/fonts/NotoNaskhArabic-Bold.ttf
-
-      - name: Generate Android platform
-        run: flutter create --platforms=android --org com.explapp --project-name matching .
-
-      - name: Configure Android
-        run: |
-          rm -f test/widget_test.dart
-          sed -i 's/applicationId = "com.explapp.matching"/applicationId = "com.explapp.accountmatching"/' android/app/build.gradle.kts
-          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 23/' android/app/build.gradle.kts
 
       - name: Get packages
         run: flutter pub get
@@ -87,6 +86,14 @@ jobs:
             echo "keyAlias=$KEY_ALIAS"
             echo "storeFile=matching-upload.jks"
           } > android/key.properties
+
+      - name: Verify application id and Android target
+        shell: bash
+        run: |
+          grep -q 'applicationId = "com.explapp.accountmatching"' android/app/build.gradle.kts
+          grep -q 'compileSdk = 36' android/app/build.gradle.kts
+          grep -q 'targetSdk = 36' android/app/build.gradle.kts
+          grep -q 'minSdk = 23' android/app/build.gradle.kts
 
       - name: Verify Android startup dependency
         shell: bash
@@ -169,7 +176,7 @@ jobs:
           git push
 
       - name: Publish APK, AAB, and validated source upgrade
-        if: success() && github.actor != 'github-actions[bot]' && (github.event_name != 'pull_request' || github.head_ref == 'agent/fix-report-saving')
+        if: success() && github.actor != 'github-actions[bot]'
         run: |
           test -s build/app/outputs/flutter-apk/app-release.apk
           test -s build/app/outputs/bundle/release/app-release.aab
@@ -180,11 +187,11 @@ jobs:
           rm -f CI_FAILURE.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk/Matching.apk google-play/Matching.aab DOWNLOAD_APK.md
+          git add lib/main.dart apk/Matching.apk google-play/Matching.aab DOWNLOAD_APK.md
           if git ls-files --error-unmatch CI_FAILURE.md >/dev/null 2>&1; then
             git add -u -- CI_FAILURE.md
           fi
-          git diff --cached --quiet || git commit -m "Publish final Matching APK and AAB"
+          git diff --cached --quiet || git commit -m "Publish Matching 1.3.0 build"
           git push
 
       - name: Upload signed APK and Play package
