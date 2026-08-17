@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:matching/models/transaction_record.dart';
 import 'package:matching/services/bank_reconciliation_service.dart';
 import 'package:matching/services/file_import_service.dart';
 import 'package:matching/services/reconciliation_engine.dart';
