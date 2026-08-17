@@ -4,6 +4,13 @@ path = Path('lib/main.dart')
 text = path.read_text(encoding='utf-8')
 original = text
 
+# The validated 1.3.0 source is committed back to the branch after a successful
+# build. Future builds must therefore treat an already-applied update as valid
+# instead of failing because the original replacement anchors no longer exist.
+if "const MatchingApp({super.key, this.home = const LaunchGate()});" in text:
+    print('Matching 1.3.0 UI update already present; skipping patch.')
+    raise SystemExit(0)
+
 
 def replace_once(old: str, new: str, label: str) -> None:
     global text
