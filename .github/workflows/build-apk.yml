@@ -69,6 +69,19 @@ jobs:
       - name: Get packages
         run: flutter pub get
 
+      - name: Restore Gradle wrapper only
+        shell: bash
+        run: |
+          TMP_DIR="$(mktemp -d)"
+          flutter create --platforms=android --org com.explapp --project-name matching "$TMP_DIR/wrapper_source"
+          cp "$TMP_DIR/wrapper_source/android/gradlew" android/gradlew
+          cp "$TMP_DIR/wrapper_source/android/gradlew.bat" android/gradlew.bat
+          mkdir -p android/gradle/wrapper
+          cp "$TMP_DIR/wrapper_source/android/gradle/wrapper/gradle-wrapper.jar" android/gradle/wrapper/gradle-wrapper.jar
+          chmod +x android/gradlew
+          test -x android/gradlew
+          test -s android/gradle/wrapper/gradle-wrapper.jar
+
       - name: Configure release signing
         shell: bash
         env:
