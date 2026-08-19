@@ -2,12 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:matching/services/file_save_service.dart';
 
 void main() {
-  test('keeps Excel and CSV on file_picker and PDF on native Android writer', () {
+  test('uses native Android writer for supported report formats', () {
     expect(usesNativeAndroidWriterForExtension('pdf'), isTrue);
     expect(usesNativeAndroidWriterForExtension('PDF'), isTrue);
-
-    expect(usesNativeAndroidWriterForExtension('xlsx'), isFalse);
-    expect(usesNativeAndroidWriterForExtension('xls'), isFalse);
-    expect(usesNativeAndroidWriterForExtension('csv'), isFalse);
+    expect(usesNativeAndroidWriterForExtension('xlsx'), isTrue);
+    expect(usesNativeAndroidWriterForExtension('xls'), isTrue);
+    expect(usesNativeAndroidWriterForExtension('csv'), isTrue);
+    expect(usesNativeAndroidWriterForExtension('txt'), isFalse);
   });
 }
