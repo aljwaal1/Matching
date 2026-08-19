@@ -14,8 +14,13 @@ class SavedReport {
 }
 
 @visibleForTesting
-bool usesNativeAndroidWriterForExtension(String extension) =>
-    extension.trim().toLowerCase() == 'pdf';
+bool usesNativeAndroidWriterForExtension(String extension) {
+  final normalized = extension.trim().toLowerCase();
+  return normalized == 'pdf' ||
+      normalized == 'xlsx' ||
+      normalized == 'xls' ||
+      normalized == 'csv';
+}
 
 class FileSaveService {
   const FileSaveService();
@@ -38,8 +43,6 @@ class FileSaveService {
     final preferences = await SharedPreferences.getInstance();
     final locationKey = _locationKey(safeName);
 
-    // على Android لا نعيد استخدام URI قديم تلقائيًا. بعض مديري الملفات
-    // يحتفظون بالإذن شكليًا ثم يفرغون الملف عند محاولة الكتابة اللاحقة.
     if (!isAndroid) {
       final previousLocation = preferences.getString(locationKey);
       if (previousLocation != null) {
@@ -54,16 +57,12 @@ class FileSaveService {
 
     final SavedReport? saved;
     if (useNativeAndroidWriter) {
-      // PDF فقط يستخدم كاتب Android الأصلي.
       saved = await _createAndWriteOnAndroid(
         bytes: bytes,
         fileName: safeName,
         extension: extension,
       );
     } else {
-      // Excel وCSV يستخدمان المسار المجرب: file_picker يكتب bytes مباشرة
-      // أثناء إنشاء المستند. لا نعيد فتح URI للكتابة مرة ثانية، لأن هذا هو
-      // المسار الذي سبق أن تسبب بملفات XLSX صفرية على بعض الأجهزة.
       final location = await FilePicker.platform.saveFile(
         dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
         fileName: safeName,
@@ -102,8 +101,14 @@ class FileSaveService {
     if (response == null) return null;
 
     final location = response['location'] as String?;
+    final size = response['size'];
     if (location == null || location.trim().isEmpty) {
       throw StateError('لم يرجع مدير الملفات موقعًا صالحًا للحفظ.');
+    }
+    if (size is int && size != bytes.length) {
+      throw StateError(
+        'فشل التحقق من الملف بعد الحفظ: الحجم المتوقع ${bytes.length} والحجم الفعلي $size.',
+      );
     }
 
     await _verifyExistingWithRetries(location, bytes.length);
