@@ -3,7 +3,6 @@ package com.explapp.matching
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
-import android.os.ParcelFileDescriptor
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -13,8 +12,8 @@ import java.io.FileOutputStream
 class MainActivity : FlutterActivity() {
     companion object {
         private const val CREATE_REPORT_REQUEST_CODE = 47021
-        private const val VERIFY_RETRIES = 10
-        private const val VERIFY_DELAY_MS = 200L
+        private const val VERIFY_RETRIES = 12
+        private const val VERIFY_DELAY_MS = 250L
         private const val SUPPORT_EMAIL = "fastunlocked2017@gmail.com"
     }
 
@@ -221,22 +220,22 @@ class MainActivity : FlutterActivity() {
                     Intent.FLAG_GRANT_READ_URI_PERMISSION or
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
                 )
-            } catch (_: SecurityException) {
-                // بعض مزودي الملفات يمنحون الإذن للجلسة فقط.
-            }
-
-            val descriptor = try {
-                contentResolver.openFileDescriptor(uri, "rwt")
             } catch (_: Exception) {
-                contentResolver.openFileDescriptor(uri, "rw")
+                // الإذن الممنوح للجلسة الحالية كافٍ للحفظ.
             }
-            requireNotNull(descriptor) { "تعذر فتح الملف للكتابة" }
 
-            ParcelFileDescriptor.AutoCloseOutputStream(descriptor).use { stream ->
-                stream.channel.truncate(0)
-                stream.write(bytes)
-                stream.flush()
-                stream.fd.sync()
+            // SAF هو المسار الصحيح مع Android الحديث. نكتب مباشرة إلى الـ URI
+            // الذي اختاره المستخدم بدل تحويله إلى مسار تخزين أو استخدام
+            // FileChannel.truncate، لأن بعض providers كانت تنتهي بملف 0 بايت.
+            val stream = try {
+                contentResolver.openOutputStream(uri, "wt")
+            } catch (_: Exception) {
+                contentResolver.openOutputStream(uri, "w")
+            }
+            requireNotNull(stream) { "تعذر فتح الملف للكتابة" }
+            stream.use {
+                it.write(bytes)
+                it.flush()
             }
 
             return verifyWrittenSize(location, bytes.size.toLong())
@@ -254,21 +253,19 @@ class MainActivity : FlutterActivity() {
 
     private fun verifyWrittenSize(location: String, expectedSize: Long): Long {
         var lastReportedSize = -1L
-        repeat(VERIFY_RETRIES) {
+        repeat(VERIFY_RETRIES) { attempt ->
             lastReportedSize = try {
                 fileSize(location)
             } catch (_: Exception) {
                 -1L
             }
             if (lastReportedSize == expectedSize) return lastReportedSize
-            if (lastReportedSize > 0L) return lastReportedSize
-            Thread.sleep(VERIFY_DELAY_MS)
+            if (attempt < VERIFY_RETRIES - 1) Thread.sleep(VERIFY_DELAY_MS)
         }
 
-        // بعض مزودي التخزين يكتبون البيانات بنجاح لكن يبقون الحجم المبلغ عنه صفرًا
-        // أو يمنعون القراءة الفورية. وصولنا إلى هنا بعد flush وfsync يعني أن الكتابة
-        // اكتملت دون استثناء، لذلك نعيد الحجم المكتوب بدل إصدار خطأ زائف للمستخدم.
-        return expectedSize
+        throw IllegalStateException(
+            "فشل التحقق من الملف بعد الكتابة: الحجم المتوقع $expectedSize والحجم الفعلي $lastReportedSize",
+        )
     }
 
     private fun fileSize(location: String): Long {
