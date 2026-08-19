@@ -14,13 +14,8 @@ class SavedReport {
 }
 
 @visibleForTesting
-bool usesNativeAndroidWriterForExtension(String extension) {
-  final normalized = extension.trim().toLowerCase();
-  return normalized == 'pdf' ||
-      normalized == 'xlsx' ||
-      normalized == 'xls' ||
-      normalized == 'csv';
-}
+bool usesNativeAndroidWriterForExtension(String extension) =>
+    extension.trim().toLowerCase() == 'pdf';
 
 class FileSaveService {
   const FileSaveService();
@@ -59,15 +54,16 @@ class FileSaveService {
 
     final SavedReport? saved;
     if (useNativeAndroidWriter) {
-      // على Android نستخدم كاتب النظام الأصلي لجميع أنواع التقارير المدعومة.
-      // هذا يمنع مشكلة إنشاء ملفات صفرية الحجم التي تظهر مع بعض مديري الملفات
-      // عند استخدام file_picker مع bytes مباشرة.
+      // PDF فقط يستخدم كاتب Android الأصلي.
       saved = await _createAndWriteOnAndroid(
         bytes: bytes,
         fileName: safeName,
         extension: extension,
       );
     } else {
+      // Excel وCSV يستخدمان المسار المجرب: file_picker يكتب bytes مباشرة
+      // أثناء إنشاء المستند. لا نعيد فتح URI للكتابة مرة ثانية، لأن هذا هو
+      // المسار الذي سبق أن تسبب بملفات XLSX صفرية على بعض الأجهزة.
       final location = await FilePicker.platform.saveFile(
         dialogTitle: dialogTitle ?? 'اختر مكان حفظ الملف',
         fileName: safeName,
