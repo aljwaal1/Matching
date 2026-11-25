@@ -20,6 +20,12 @@ import 'screens/privacy_policy_screen.dart';
 import 'screens/support_screen.dart';
 import 'widgets/operation_feedback.dart';
 
+ReconciliationResult _runReconciliation(
+  (List<TransactionRecord>, List<TransactionRecord>, ReconciliationSettings) input,
+) => const ReconciliationEngine().reconcile(
+  left: input.$1, right: input.$2, settings: input.$3,
+);
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MatchingApp());
@@ -602,11 +608,7 @@ class _SetupScreenState extends State<SetupScreen> {
         mode: widget.mode,
         documentMismatchRule: _documentMismatchRule,
       );
-      final result = await compute((_) => const ReconciliationEngine().reconcile(
-        left: left,
-        right: right,
-        settings: settings,
-      ), null);
+      final result = await compute(_runReconciliation, (left, right, settings));
       if (!mounted) return;
       await Navigator.push(
         context,
