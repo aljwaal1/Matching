@@ -418,6 +418,19 @@ class _SetupScreenState extends State<SetupScreen> {
       if (mounted) {
         setState(() => _busyMessage = 'جاري استيراد العمليات إلى التطبيق...');
       }
+      // Signed Amount columns represent increases/decreases in the account balance.
+      // Preserve explicit mapping choices; bank statement debit/credit is the bank perspective.
+      if (Platform.isWindows && widget.mode == ReconciliationMode.bank &&
+          usesDirectAmount && mapping.directAmountRule == DirectAmountRule.unknown) {
+        mapping = ColumnMapping(
+          date: mapping.date, document: mapping.document, amount: mapping.amount,
+          debit: mapping.debit, credit: mapping.credit, balance: mapping.balance,
+          description: mapping.description,
+          directAmountRule: first
+              ? DirectAmountRule.positiveDebitNegativeCredit
+              : DirectAmountRule.positiveCreditNegativeDebit,
+        );
+      }
       final imported = _importer.buildStatement(prepared, mapping);
 
       if (!mounted) return;
@@ -807,7 +820,7 @@ class _SetupScreenState extends State<SetupScreen> {
           Expanded(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
             const Text('١. اختر دفاتر الشركة     ٢. اختر كشف البنك     ٣. ابدأ المطابقة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text('يدعم Excel وCSV وPDF النصي • تتم معالجة البيانات على جهازك'),
+            const Text('يدعم Excel وCSV وPDF النصي • المبلغ الموجب زيادة في الرصيد والسالب نقصان'),
             const SizedBox(height: 12),
             Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Expanded(child: _desktopFile(true)),
@@ -823,16 +836,32 @@ class _SetupScreenState extends State<SetupScreen> {
           Container(width: double.infinity, color: const Color(0xFF142E46), padding: const EdgeInsets.symmetric(vertical: 8),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Text('تصميم وإعداد وبرمجة المحاسب المحترف', style: TextStyle(color: Color(0xFFE8C477), fontWeight: FontWeight.bold)),
-              TextButton(onPressed: () async {
-                await Clipboard.setData(const ClipboardData(text: 'https://acc.explapp.com'));
-                _message('تم نسخ رابط الموقع');
-              }, child: const Text('acc.explapp.com — نسخ رابط الموقع', style: TextStyle(color: Colors.white))),
+              Wrap(alignment: WrapAlignment.center, spacing: 12, children: [
+                _contactLink(Icons.language, 'الموقع', 'https://acc.explapp.com'),
+                _contactLink(Icons.send, 'تيليجرام', 'https://t.me/vibaccounting'),
+                _contactLink(Icons.mail_outline, 'البريد', 'mailto:fastunlocked2017@gmail.com'),
+              ]),
             ])),
         ]),
         if (_busy) OperationStatusOverlay(message: _busyMessage, details: 'تتم معالجة بياناتك محليًا.'),
       ]),
     );
   }
+
+  Widget _contactLink(IconData icon, String label, String target) => TextButton.icon(
+    style: TextButton.styleFrom(foregroundColor: Colors.white),
+    onPressed: () async {
+      try {
+        final uri = Uri.parse(target);
+        final result = await Process.run('rundll32.exe', ['url.dll,FileProtocolHandler', uri.toString()]);
+        if (result.exitCode != 0) throw StateError('open failed');
+      } catch (_) {
+        await Clipboard.setData(ClipboardData(text: target));
+        _message('تم نسخ رابط التواصل');
+      }
+    },
+    icon: Icon(icon, size: 17), label: Text(label),
+  );
 
   Widget _desktopFile(bool first) {
     final statement = first ? _first : _second;
