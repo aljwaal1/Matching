@@ -83,7 +83,7 @@ class _LocalActivationScreenState extends State<LocalActivationScreen> {
               const SizedBox(height: 20),
               const Text('تصميم وإعداد وبرمجة المحاسب المحترف'),
               const Text('acc.explapp.com'),
-            ]))))),
+            ])))))),
     );
   }
 }
