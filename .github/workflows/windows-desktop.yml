@@ -15,6 +15,9 @@ jobs:
           channel: stable
       - run: flutter config --enable-windows-desktop
       - run: flutter create --platforms=windows --project-name matching --no-pub .
+      - name: Generate branded Windows icon
+        shell: powershell
+        run: .\tools\windows_icon.ps1
       - run: flutter pub get
       - run: flutter test
       - name: Build obfuscated Windows release
