@@ -199,11 +199,15 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
             Expanded(child: Text(_canSubmit ? 'تم تحديد الحقول الأساسية. راجعها ثم اضغط اعتماد.' : 'حدد التاريخ والمبلغ، أو المدين والدائن.', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
           ]),
           const SizedBox(height: 10),
-          LayoutBuilder(builder: (context, constraints) {
-            final count = constraints.maxWidth >= 760 ? 4 : 3;
-            final width = (constraints.maxWidth - (count - 1) * 10) / count;
-            return Wrap(spacing: 10, runSpacing: 8, children: fields.map((field) => SizedBox(width: width, child: field)).toList());
-          }),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (var i = 0; i < fields.length; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                Expanded(child: fields[i]),
+              ],
+            ],
+          ),
           if (_amount != null) Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(children: [
