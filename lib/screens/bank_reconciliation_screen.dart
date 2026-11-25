@@ -244,7 +244,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
                   Expanded(child: Text(item.type == BankDifferenceType.reviewRequired ? item.amount.toStringAsFixed(2) : '${item.add ? '+' : '-'}${item.amount.toStringAsFixed(2)}', maxLines: 1)),
                   IconButton(tooltip: 'مراجعة وتعديل البند', onPressed: _busy ? null : () => _editItem(item), icon: const Icon(Icons.edit_outlined, size: 19)),
                   if (item.manual) IconButton(tooltip: 'حذف', onPressed: _busy ? null : () => _deleteManualItem(item), icon: const Icon(Icons.delete_outline, size: 19)),
-                ]))).toList())),
+                ]))).toList()))),
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                 IconButton(onPressed: page > 0 ? () => setState(() => _desktopPage = page - 1) : null, icon: const Icon(Icons.chevron_right)),
                 Text('${page + 1} / $pages   •   ${filtered.length} بند'),
