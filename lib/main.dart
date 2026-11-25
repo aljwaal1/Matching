@@ -602,11 +602,11 @@ class _SetupScreenState extends State<SetupScreen> {
         mode: widget.mode,
         documentMismatchRule: _documentMismatchRule,
       );
-      final result = const ReconciliationEngine().reconcile(
+      final result = await compute((_) => const ReconciliationEngine().reconcile(
         left: left,
         right: right,
         settings: settings,
-      );
+      ), null);
       if (!mounted) return;
       await Navigator.push(
         context,
@@ -725,18 +725,18 @@ class _SetupScreenState extends State<SetupScreen> {
             ListView(
               padding: const EdgeInsets.all(20),
               children: [
-                _FileCard(
-                  number: 1,
-                  label: firstStatementLabel,
-                  statement: _first,
-                  onTap: () => _pick(true),
-                ),
-                const SizedBox(height: 12),
-                _FileCard(
-                  number: 2,
-                  label: secondStatementLabel,
-                  statement: _second,
-                  onTap: () => _pick(false),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final first = _FileCard(number: 1, label: firstStatementLabel,
+                      statement: _first, onTap: () => _pick(true));
+                    final second = _FileCard(number: 2, label: secondStatementLabel,
+                      statement: _second, onTap: () => _pick(false));
+                    return constraints.maxWidth >= 850
+                      ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(child: first), const SizedBox(width: 20), Expanded(child: second)])
+                      : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                          first, const SizedBox(height: 12), second]);
+                  },
                 ),
                 const SizedBox(height: 18),
                 Card(
