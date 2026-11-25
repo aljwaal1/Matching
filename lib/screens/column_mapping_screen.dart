@@ -43,8 +43,17 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
     _directAmountRule = initial?.directAmountRule ?? DirectAmountRule.unknown;
   }
 
+  bool get _desktopMapping => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  bool get _hasDuplicateColumns {
+    final selected = [_date, _document, _amount, _debit, _credit, _balance, _description]
+        .whereType<int>().toList();
+    return selected.toSet().length != selected.length;
+  }
+
   bool get _canSubmit =>
-      _date != null && (_amount != null || _debit != null || _credit != null);
+      _date != null && (_amount != null || _debit != null || _credit != null) &&
+      (!_desktopMapping || !_hasDuplicateColumns);
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +205,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
           Row(children: [
             Icon(_canSubmit ? Icons.check_circle_outline : Icons.info_outline, color: const Color(0xFF087F75)),
             const SizedBox(width: 8),
-            Expanded(child: Text(_canSubmit ? 'تم تحديد الحقول الأساسية. راجعها ثم اضغط اعتماد.' : 'حدد التاريخ والمبلغ، أو المدين والدائن.', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            Expanded(child: Text(_hasDuplicateColumns ? 'لا يمكن استخدام العمود نفسه لأكثر من حقل. راجع الاختيارات.' : _canSubmit ? 'تم تحديد الحقول الأساسية. راجعها ثم اضغط اعتماد.' : 'حدد التاريخ والمبلغ، أو المدين والدائن.', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
           ]),
           const SizedBox(height: 10),
           Row(
@@ -258,6 +267,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
 
   Widget _compactField(String label, int? value, ValueChanged<int?> change) {
     return DropdownButtonFormField<int>(
+      key: ValueKey('$label-$value'),
       value: value ?? -1,
       isExpanded: true,
       decoration: InputDecoration(labelText: label, isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
@@ -484,6 +494,7 @@ class _ColumnMappingScreenState extends State<ColumnMappingScreen> {
       );
 
   void _submit() {
+    if (!_canSubmit) return;
     Navigator.pop(
       context,
       ColumnMapping(
