@@ -17,7 +17,13 @@ jobs:
       - run: flutter create --platforms=windows --project-name matching --no-pub .
       - run: flutter pub get
       - run: flutter test
-      - run: flutter build windows --release
+      - name: Build obfuscated Windows release
+        run: flutter build windows --release --obfuscate --split-debug-info=build/private-symbols
+      - name: Remove debug symbols from distributable
+        shell: pwsh
+        run: |
+          Get-ChildItem build/windows/x64/runner/Release -Recurse -File -Include *.pdb,*.symbols,*.map | Remove-Item -Force
+          if (Get-ChildItem build/windows/x64/runner/Release -Recurse -File -Include *.dart,*.pdb,*.symbols,*.map) { throw "Unexpected source or debug files in release" }
       - uses: actions/upload-artifact@v4
         with:
           name: Matching-Windows-x64
