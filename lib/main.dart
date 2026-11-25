@@ -594,7 +594,7 @@ class _SetupScreenState extends State<SetupScreen> {
       return;
     }
 
-    final rule = await _askMatchingRules();
+    final rule = Platform.isWindows ? DocumentMismatchRule.unmatched : await _askMatchingRules();
     if (rule == null) return;
     _documentMismatchRule = rule;
 
@@ -723,7 +723,7 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => Platform.isWindows ? _desktop() : Scaffold(
         appBar: AppBar(title: Text(title)),
         body: Stack(
           children: [
@@ -790,6 +790,66 @@ class _SetupScreenState extends State<SetupScreen> {
           ],
         ),
       );
+  Widget _desktop() {
+    final ready = _first != null && _second != null;
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
+      body: Stack(children: [
+        Column(children: [
+          Container(color: const Color(0xFF142E46), padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+            child: Row(children: [
+              const Icon(Icons.account_balance, color: Colors.white, size: 30),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('المطابقة البنكية الاحترافية', style: TextStyle(color: Colors.white, fontSize: 25, fontWeight: FontWeight.bold))),
+              IconButton(tooltip: 'أرشيف التسويات', color: Colors.white, icon: const Icon(Icons.inventory_2_outlined),
+                onPressed: _busy ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => const Directionality(textDirection: TextDirection.rtl, child: ArchiveHomeScreen())))),
+            ])),
+          Expanded(child: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+            const Text('١. اختر دفاتر الشركة     ٢. اختر كشف البنك     ٣. ابدأ المطابقة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            const Text('يدعم Excel وCSV وPDF النصي • تتم معالجة البيانات على جهازك'),
+            const SizedBox(height: 12),
+            Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Expanded(child: _desktopFile(true)),
+              const SizedBox(width: 12),
+              Expanded(child: _desktopFile(false)),
+            ])),
+            const SizedBox(height: 12),
+            Text(ready ? 'الكشفان جاهزان للمطابقة' : 'اختر الملفين للمتابعة', style: TextStyle(color: ready ? const Color(0xFF087F75) : const Color(0xFF526477))),
+            const SizedBox(height: 8),
+            FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: const Color(0xFF087F75)),
+              onPressed: ready && !_busy ? _match : null, icon: const Icon(Icons.compare_arrows), label: const Text('بدء المطابقة البنكية')),
+          ]))),
+          Container(width: double.infinity, color: const Color(0xFF142E46), padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('تصميم وإعداد وبرمجة المحاسب المحترف', style: TextStyle(color: Color(0xFFE8C477), fontWeight: FontWeight.bold)),
+              TextButton(onPressed: () async {
+                await Clipboard.setData(const ClipboardData(text: 'https://acc.explapp.com'));
+                _message('تم نسخ رابط الموقع');
+              }, child: const Text('acc.explapp.com — نسخ رابط الموقع', style: TextStyle(color: Colors.white))),
+            ])),
+        ]),
+        if (_busy) OperationStatusOverlay(message: _busyMessage, details: 'تتم معالجة بياناتك محليًا.'),
+      ]),
+    );
+  }
+
+  Widget _desktopFile(bool first) {
+    final statement = first ? _first : _second;
+    final label = first ? firstStatementLabel : secondStatementLabel;
+    return Card(child: InkWell(onTap: _busy ? null : () => _pick(first),
+      child: Padding(padding: const EdgeInsets.all(12), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(first ? Icons.menu_book_rounded : Icons.account_balance_rounded, size: 38, color: const Color(0xFF163A5F)),
+        const SizedBox(height: 6),
+        Text(label, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+        Text(statement?.fileName ?? 'لم يتم اختيار ملف', maxLines: 1, overflow: TextOverflow.ellipsis),
+        if (statement != null) Text('${statement.records.length} حركة مالية'),
+        if (statement?.detectedBalance != null) Text('الرصيد: ${NumberFormat("#,##0.00", "en_US").format(statement!.detectedBalance)}'),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(onPressed: _busy ? null : () => _pick(first), icon: const Icon(Icons.upload_file), label: Text(statement == null ? 'اختيار الملف' : 'استبدال الملف')),
+      ]))));
+  }
+
 }
 
 class ResultsScreen extends StatefulWidget {
