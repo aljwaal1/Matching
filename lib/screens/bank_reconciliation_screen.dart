@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
@@ -51,6 +52,9 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   bool _busy = false;
   String _busyMessage = 'جاري تنفيذ العملية...';
   bool _usePreviousReconciliation = false;
+  int _desktopPage = 0;
+  String _desktopQuery = '';
+  String _desktopFilter = 'all';
 
   @override
   void initState() {
@@ -71,6 +75,17 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
     if (bankBalance != null) {
       _bankController.text = bankBalance.toStringAsFixed(2);
     }
+    if (initial == null) {
+      final dates = <DateTime>[
+        ...widget.result.pairs.map((p) => p.left.date),
+        ...widget.result.pairs.where((p) => p.right != null).map((p) => p.right!.date),
+        ...widget.result.unmatchedRight.map((p) => p.date),
+      ]..sort();
+      if (dates.isNotEmpty) _period = DateTime(dates.last.year, dates.last.month);
+      if (Platform.isWindows && bookBalance != null && bankBalance != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _calculate(); });
+      }
+    }
     if (initial != null) {
       _period = initial.period;
       _statement = initial;
@@ -88,6 +103,7 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
   @override
   Widget build(BuildContext context) {
     final statement = _statement;
+    if (Platform.isWindows) return _desktopResult(statement);
     return Scaffold(
       appBar: AppBar(
         title: const Text('التسوية البنكية'),
@@ -158,6 +174,104 @@ class _BankReconciliationScreenState extends State<BankReconciliationScreen> {
       ),
     );
   }
+
+
+  Widget _desktopResult(BankReconciliationStatement? statement) {
+    final all = statement?.items ?? const <BankAdjustmentItem>[];
+    final filtered = all.where((item) {
+      final query = _desktopQuery.trim().toLowerCase();
+      final matches = query.isEmpty || item.description.toLowerCase().contains(query) ||
+        (item.transaction?.documentNumber ?? '').toLowerCase().contains(query) ||
+        item.amount.toStringAsFixed(2).contains(query);
+      return matches && (_desktopFilter == 'all' ||
+        (_desktopFilter == 'review' && item.type == BankDifferenceType.reviewRequired) ||
+        (_desktopFilter == 'bank' && item.adjustBankBalance) ||
+        (_desktopFilter == 'book' && !item.adjustBankBalance));
+    }).toList(growable: false);
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
+      appBar: AppBar(backgroundColor: const Color(0xFF142E46), title: const Text('نتائج المطابقة والتسوية البنكية'),
+        actions: [IconButton(tooltip: 'أرشيف التسويات', onPressed: _busy ? null : _openArchive, icon: const Icon(Icons.inventory_2_outlined))]),
+      body: Stack(children: [
+        Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+          Row(children: [
+            _desktopMetric('مطابق', widget.result.matchedCount.toString(), const Color(0xFF087F75)),
+            _desktopMetric('غير مطابق', widget.result.unmatchedCount.toString(), const Color(0xFFB91C1C)),
+            _desktopMetric('معلق', widget.result.pendingCount.toString(), const Color(0xFFB45309)),
+            _desktopMetric('فرق التسوية', statement == null ? '—' : statement.difference.toStringAsFixed(2), const Color(0xFF163A5F)),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(controller: _accountController, decoration: const InputDecoration(labelText: 'الحساب', isDense: true))),
+            const SizedBox(width: 8),
+            Expanded(child: TextField(controller: _bookController, decoration: const InputDecoration(labelText: 'رصيد الدفاتر', isDense: true))),
+            const SizedBox(width: 8),
+            Expanded(child: TextField(controller: _bankController, decoration: const InputDecoration(labelText: 'رصيد البنك', isDense: true))),
+            const SizedBox(width: 8),
+            OutlinedButton(onPressed: _busy ? null : _pickPeriod, child: Text(DateFormat('yyyy/MM').format(_period))),
+            const SizedBox(width: 8),
+            OutlinedButton(onPressed: _busy ? null : _calculate, child: const Text('إعداد التسوية')),
+          ]),
+          const SizedBox(height: 8),
+          if (statement != null) Row(children: [
+            _desktopMetric('رصيد البنك المعدل', statement.adjustedBankBalance.toStringAsFixed(2), const Color(0xFF163A5F)),
+            _desktopMetric('رصيد الدفاتر المعدل', statement.adjustedBookBalance.toStringAsFixed(2), const Color(0xFF163A5F)),
+            _desktopMetric('حالة التسوية', statement.isBalanced ? 'متوازنة' : 'تحتاج مراجعة', statement.isBalanced ? const Color(0xFF087F75) : const Color(0xFFB45309)),
+          ]),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: TextField(onChanged: (v) => setState(() { _desktopQuery = v; _desktopPage = 0; }),
+              decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'ابحث عن مبلغ أو مستند أو بيان', isDense: true))),
+            const SizedBox(width: 8),
+            DropdownButton<String>(value: _desktopFilter, items: const [
+              DropdownMenuItem(value: 'all', child: Text('كل البنود')),
+              DropdownMenuItem(value: 'review', child: Text('تحتاج مراجعة')),
+              DropdownMenuItem(value: 'bank', child: Text('تعديل البنك')),
+              DropdownMenuItem(value: 'book', child: Text('تعديل الدفاتر')),
+            ], onChanged: (v) { if (v != null) setState(() { _desktopFilter = v; _desktopPage = 0; }); }),
+          ]),
+          Expanded(child: LayoutBuilder(builder: (context, constraints) {
+            final size = ((constraints.maxHeight - 56) / 44).floor().clamp(1, 20).toInt();
+            final pages = filtered.isEmpty ? 1 : (filtered.length / size).ceil();
+            final page = _desktopPage.clamp(0, pages - 1).toInt();
+            final visible = filtered.skip(page * size).take(size);
+            return Column(children: [
+              Expanded(child: Card(child: filtered.isEmpty ? const Center(child: Text('لا توجد بنود للعرض.')) :
+                Column(children: visible.map((item) => SizedBox(height: 44, child: Row(children: [
+                  const SizedBox(width: 8),
+                  Expanded(flex: 3, child: Text(item.description, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  Expanded(flex: 2, child: Text(item.type.label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                  Expanded(child: Text(item.type == BankDifferenceType.reviewRequired ? item.amount.toStringAsFixed(2) : '${item.add ? '+' : '-'}${item.amount.toStringAsFixed(2)}', maxLines: 1)),
+                  IconButton(tooltip: 'مراجعة وتعديل البند', onPressed: _busy ? null : () => _editItem(item), icon: const Icon(Icons.edit_outlined, size: 19)),
+                  if (item.manual) IconButton(tooltip: 'حذف', onPressed: _busy ? null : () => _deleteManualItem(item), icon: const Icon(Icons.delete_outline, size: 19)),
+                ]))).toList()))),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                IconButton(onPressed: page > 0 ? () => setState(() => _desktopPage = page - 1) : null, icon: const Icon(Icons.chevron_right)),
+                Text('${page + 1} / $pages   •   ${filtered.length} بند'),
+                IconButton(onPressed: page + 1 < pages ? () => setState(() => _desktopPage = page + 1) : null, icon: const Icon(Icons.chevron_left)),
+              ]),
+            ]);
+          })),
+          if (statement != null) Wrap(spacing: 8, runSpacing: 4, alignment: WrapAlignment.center, children: [
+            OutlinedButton.icon(onPressed: _busy ? null : () => _save(statement), icon: const Icon(Icons.save_outlined), label: const Text('حفظ')),
+            OutlinedButton.icon(onPressed: _busy ? null : () => _export(statement, pdf: false), icon: const Icon(Icons.table_view), label: const Text('Excel')),
+            OutlinedButton.icon(onPressed: _busy ? null : () => _export(statement, pdf: true), icon: const Icon(Icons.picture_as_pdf), label: const Text('PDF')),
+            OutlinedButton(onPressed: _busy ? null : _addManualItem, child: const Text('إضافة بند')),
+            OutlinedButton(onPressed: _busy ? null : _loadPreviousPending, child: const Text('استدعاء السابق')),
+          ]),
+          const Text('راجع البنود غير المطابقة قبل اعتماد التقرير • تصميم وإعداد وبرمجة المحاسب المحترف'),
+        ])),
+        if (_busy) OperationStatusOverlay(message: _busyMessage, details: 'تتم معالجة البيانات محليًا.'),
+      ]),
+    );
+  }
+
+  Widget _desktopMetric(String label, String value, Color color) => Expanded(child: Card(
+    child: Padding(padding: const EdgeInsets.all(8), child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 19, fontWeight: FontWeight.bold)),
+    ])),
+  ));
 
   Widget _hero() => Container(
         padding: const EdgeInsets.all(18),
