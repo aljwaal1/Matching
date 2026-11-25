@@ -6,7 +6,8 @@ import '../services/local_license_hashes.dart';
 
 String licenseDigest(String input) {
   final normalized = input.trim().toUpperCase().replaceAll(RegExp(r'[\s-]'), '');
-  final code = normalized.startsWith('ACC') ? normalized.substring(3) : normalized;
+  final code = normalized.length == 35 && normalized.startsWith('ACC')
+      ? normalized.substring(3) : normalized;
   if (!RegExp(r'^[0-9A-F]{32}$').hasMatch(code)) return '';
   return sha256.convert(utf8.encode(code)).toString();
 }
@@ -75,14 +76,14 @@ class _LocalActivationScreenState extends State<LocalActivationScreen> {
               const Text('أدخل رمز التفعيل مرة واحدة. لا يلزم اتصال بالإنترنت.'),
               const SizedBox(height: 18),
               TextField(controller: _controller, enabled: !_loading, textDirection: TextDirection.ltr,
+                autocorrect: false, enableSuggestions: false,
                 decoration: InputDecoration(labelText: 'رمز التفعيل', errorText: _error),
                 onSubmitted: (_) { if (!_loading) _activate(); }),
               const SizedBox(height: 16),
               FilledButton(onPressed: _loading ? null : _activate,
                 child: Text(_loading ? 'جاري التحقق...' : 'تفعيل البرنامج')),
-              const SizedBox(height: 20),
-              const Text('تصميم وإعداد وبرمجة المحاسب المحترف'),
-              const Text('acc.explapp.com'),
+              const SizedBox(height: 12),
+              const Text('رمزك محفوظ محليًا بعد التفعيل. يمكنك لصقه مباشرة.', textAlign: TextAlign.center),
             ])))))),
     );
   }
