@@ -244,9 +244,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ],
         ),
-        body: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            final wide = constraints.maxWidth >= 850;
+            final first = _TypeCard(
+              icon: Icons.people_alt_outlined,
+              title: 'مطابقة العملاء والموردين',
+              subtitle: 'يشترط أن يقابل المدين الدائن والعكس.',
+              onTap: () => _open(context, ReconciliationMode.parties),
+            );
+            final second = _TypeCard(
+              icon: Icons.account_balance_outlined,
+              title: 'التسوية البنكية',
+              subtitle:
+                  'تحليل كشف البنك والدفاتر وإعداد تقرير التسوية الشامل.',
+              onTap: () => _open(context, ReconciliationMode.bank),
+            );
+            return ListView(
+              padding: EdgeInsets.all(wide ? 32 : 20),
+              children: [
+                if (wide) const Text('مركز المطابقة المالية', style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)),
             const Card(
               child: Padding(
                 padding: EdgeInsets.all(18),
@@ -257,21 +274,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(height: 18),
-            _TypeCard(
-              icon: Icons.people_alt_outlined,
-              title: 'مطابقة العملاء والموردين',
-              subtitle: 'يشترط أن يقابل المدين الدائن والعكس.',
-              onTap: () => _open(context, ReconciliationMode.parties),
-            ),
-            const SizedBox(height: 14),
-            _TypeCard(
-              icon: Icons.account_balance_outlined,
-              title: 'التسوية البنكية',
-              subtitle:
-                  'تحليل كشف البنك والدفاتر وإعداد تقرير التسوية الشامل.',
-              onTap: () => _open(context, ReconciliationMode.bank),
-            ),
-          ],
+
+                if (wide)
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(child: first),
+                    const SizedBox(width: 20),
+                    Expanded(child: second),
+                  ])
+                else ...[first, const SizedBox(height: 14), second],
+              ],
+            );
+          },
         ),
         bottomNavigationBar: _bannerLoaded && _banner != null
             ? SafeArea(
