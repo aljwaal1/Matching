@@ -14,6 +14,7 @@ import 'services/export_service.dart';
 import 'services/file_import_service.dart';
 import 'services/reconciliation_engine.dart';
 import 'services/bank_reconciliation_resume_service.dart';
+import 'screens/local_activation_screen.dart';
 import 'screens/bank_reconciliation_screen.dart';
 import 'screens/column_mapping_screen.dart';
 import 'screens/privacy_policy_screen.dart';
@@ -28,7 +29,9 @@ ReconciliationResult _runReconciliation(
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MatchingApp());
+  runApp(Platform.isWindows
+      ? const MatchingApp(home: LocalActivationScreen(child: SetupScreen(mode: ReconciliationMode.bank)))
+      : const MatchingApp());
 }
 
 class MatchingApp extends StatelessWidget {
