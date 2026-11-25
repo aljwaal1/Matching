@@ -1,0 +1,25 @@
+name: Windows Desktop
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/windows-desktop]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter config --enable-windows-desktop
+      - run: flutter create --platforms=windows --project-name matching --no-pub .
+      - run: flutter pub get
+      - run: flutter test
+      - run: flutter build windows --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Matching-Windows-x64
+          path: build/windows/x64/runner/Release/
+          if-no-files-found: error
