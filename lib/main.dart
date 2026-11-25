@@ -104,11 +104,52 @@ class MatchingApp extends StatelessWidget {
             ),
           ),
         ),
+        builder: (context, child) => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows
+            ? Directionality(textDirection: TextDirection.rtl, child: Column(children: [
+                Expanded(child: child ?? const SizedBox.shrink()),
+                const _DesktopFooter(),
+              ]))
+            : child ?? const SizedBox.shrink(),
         home: Directionality(
           textDirection: TextDirection.rtl,
           child: home,
         ),
       );
+}
+
+
+class _DesktopFooter extends StatelessWidget {
+  const _DesktopFooter();
+
+  Future<void> _open(String target) async {
+    try {
+      final result = await Process.run('rundll32.exe', ['url.dll,FileProtocolHandler', target]);
+      if (result.exitCode != 0) throw StateError('open failed');
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: target));
+    }
+  }
+
+  Widget _link(IconData icon, String label, String target) => TextButton.icon(
+    style: TextButton.styleFrom(foregroundColor: Colors.white, minimumSize: const Size(0, 34), padding: const EdgeInsets.symmetric(horizontal: 10)),
+    onPressed: () => _open(target),
+    icon: Icon(icon, size: 16), label: Text(label),
+  );
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFF142E46),
+    child: SizedBox(height: 46, child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(children: [
+        const Expanded(child: Text('تصميم وإعداد وبرمجة المحاسب المحترف', maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Color(0xFFE8C477), fontWeight: FontWeight.bold, fontSize: 15))),
+        _link(Icons.language, 'الموقع', 'https://acc.explapp.com'),
+        _link(Icons.send, 'تيليجرام', 'https://t.me/vibaccounting'),
+        _link(Icons.mail_outline, 'البريد', 'mailto:fastunlocked2017@gmail.com'),
+      ]),
+    )),
+  );
 }
 
 class HomeScreen extends StatefulWidget {
@@ -833,35 +874,12 @@ class _SetupScreenState extends State<SetupScreen> {
             FilledButton.icon(style: FilledButton.styleFrom(backgroundColor: const Color(0xFF087F75)),
               onPressed: ready && !_busy ? _match : null, icon: const Icon(Icons.compare_arrows), label: const Text('بدء المطابقة البنكية')),
           ]))),
-          Container(width: double.infinity, color: const Color(0xFF142E46), padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Text('تصميم وإعداد وبرمجة المحاسب المحترف', style: TextStyle(color: Color(0xFFE8C477), fontWeight: FontWeight.bold)),
-              Wrap(alignment: WrapAlignment.center, spacing: 12, children: [
-                _contactLink(Icons.language, 'الموقع', 'https://acc.explapp.com'),
-                _contactLink(Icons.send, 'تيليجرام', 'https://t.me/vibaccounting'),
-                _contactLink(Icons.mail_outline, 'البريد', 'mailto:fastunlocked2017@gmail.com'),
-              ]),
-            ])),
+
         ]),
         if (_busy) OperationStatusOverlay(message: _busyMessage, details: 'تتم معالجة بياناتك محليًا.'),
       ]),
     );
   }
-
-  Widget _contactLink(IconData icon, String label, String target) => TextButton.icon(
-    style: TextButton.styleFrom(foregroundColor: Colors.white),
-    onPressed: () async {
-      try {
-        final uri = Uri.parse(target);
-        final result = await Process.run('rundll32.exe', ['url.dll,FileProtocolHandler', uri.toString()]);
-        if (result.exitCode != 0) throw StateError('open failed');
-      } catch (_) {
-        await Clipboard.setData(ClipboardData(text: target));
-        _message('تم نسخ رابط التواصل');
-      }
-    },
-    icon: Icon(icon, size: 17), label: Text(label),
-  );
 
   Widget _desktopFile(bool first) {
     final statement = first ? _first : _second;
