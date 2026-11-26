@@ -32,3 +32,18 @@ jobs:
           name: Matching-Windows-x64
           path: build/windows/x64/runner/Release/
           if-no-files-found: error
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Build single-file installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) { throw "Inno Setup compiler not found" }
+          & $compiler tools\matching_installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Matching-Setup
+          path: build/installer/Matching-Setup.exe
+          if-no-files-found: error
