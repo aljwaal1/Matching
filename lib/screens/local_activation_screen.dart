@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -59,6 +61,24 @@ class _LocalActivationScreenState extends State<LocalActivationScreen> {
       if (mounted) setState(() { _loading = false; _error = 'تعذر حفظ الترخيص'; });
     }
   }
+  Future<void> _openContact(String target) async {
+    try {
+      final result = await Process.run('rundll32.exe', ['url.dll,FileProtocolHandler', target]);
+      if (result.exitCode != 0) throw StateError('open failed');
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: target));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم نسخ رابط التواصل')));
+    }
+  }
+
+  Widget _contact(IconData icon, String label, String target) => OutlinedButton.icon(
+    style: OutlinedButton.styleFrom(foregroundColor: const Color(0xFF142E46),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
+    onPressed: () => _openContact(target),
+    icon: Icon(icon, size: 18), label: Text(label),
+  );
+
   @override
   void dispose() { _controller.dispose(); super.dispose(); }
   @override
@@ -84,6 +104,22 @@ class _LocalActivationScreenState extends State<LocalActivationScreen> {
                 child: Text(_loading ? 'جاري التحقق...' : 'تفعيل البرنامج')),
               const SizedBox(height: 12),
               const Text('رمزك محفوظ محليًا بعد التفعيل. يمكنك لصقه مباشرة.', textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              const Divider(),
+              const Text('للحصول على رمز التفعيل المجاني', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: Color(0xFF142E46))),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFF087F75)),
+                onPressed: () => _openContact('https://t.me/Chtaccountingbot_bot'),
+                icon: const Icon(Icons.send),
+                label: const Text('اطلب رمز التفعيل عبر تيليجرام'),
+              ),
+              const SizedBox(height: 8),
+              Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 6, children: [
+                _contact(Icons.language, 'الموقع', 'https://acc.explapp.com'),
+                _contact(Icons.mail_outline, 'البريد الإلكتروني', 'mailto:fastunlocked2017@gmail.com'),
+                _contact(Icons.send, 'قناة تيليجرام', 'https://t.me/vibaccounting'),
+              ]),
             ])))))),
     );
   }
