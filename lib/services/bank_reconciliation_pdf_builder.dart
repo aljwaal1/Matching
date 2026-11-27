@@ -146,9 +146,10 @@ class BankReconciliationPdfBuilder {
     final pages = chunks.isEmpty
         ? <List<BankAdjustmentItem>>[const <BankAdjustmentItem>[]]
         : chunks;
+    final reviewOnly = items.every((item) => item.type == BankDifferenceType.reviewRequired);
     final total = items.fold<double>(
       0,
-      (sum, item) => sum + (item.add ? item.amount : -item.amount),
+      (sum, item) => sum + (reviewOnly ? item.amount : item.includedInCalculation ? (item.add ? item.amount : -item.amount) : 0.0),
     );
 
     return <pw.Widget>[
@@ -164,6 +165,7 @@ class BankReconciliationPdfBuilder {
           includeSide: includeSide,
           showTotal: index == pages.length - 1,
           totalOverride: total,
+          reviewOnly: reviewOnly,
         ),
       ],
     ];
@@ -233,9 +235,9 @@ class BankReconciliationPdfBuilder {
         width: double.infinity,
         padding: const pw.EdgeInsets.all(14),
         decoration: pw.BoxDecoration(
-          color: PdfColor.fromHex('#F2EEFF'),
+          color: PdfColor.fromHex('#F1F5F9'),
           borderRadius: pw.BorderRadius.circular(8),
-          border: pw.Border.all(color: PdfColor.fromHex('#CFC4FF')),
+          border: pw.Border.all(color: PdfColor.fromHex('#CBD5E1')),
         ),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -245,7 +247,7 @@ class BankReconciliationPdfBuilder {
               fonts,
               fontSize: 18,
               bold: true,
-              color: PdfColor.fromHex('#4B2FCC'),
+              color: PdfColor.fromHex('#142E46'),
               textAlign: pw.TextAlign.center,
             ),
             pw.SizedBox(height: 7),
@@ -314,7 +316,7 @@ class BankReconciliationPdfBuilder {
               children: [
                 pw.TableRow(
                   decoration: pw.BoxDecoration(
-                    color: PdfColor.fromHex('#DCD2FF'),
+                    color: PdfColor.fromHex('#DCE8EE'),
                   ),
                   children: [
                     _cell(fonts, 'الحالة', bold: true, center: true),
@@ -393,6 +395,7 @@ class BankReconciliationPdfBuilder {
     bool includeSide = false,
     bool showTotal = true,
     double? totalOverride,
+    bool reviewOnly = false,
   }) {
     final headers = <String>[
       'التاريخ',
@@ -428,6 +431,8 @@ class BankReconciliationPdfBuilder {
             textAlign: pw.TextAlign.center,
           ),
         ),
+        if (reviewOnly)
+          arabicPdfText('* مبالغ للمراجعة فقط، لا تدخل في الرصيد المعدل.', fonts, fontSize: 9),
         if (items.isEmpty)
           _emptySection(fonts, 'لا توجد بنود في هذا القسم.')
         else
@@ -480,7 +485,7 @@ class BankReconciliationPdfBuilder {
                       ),
                     _cell(
                       fonts,
-                      _money(item.add ? item.amount : -item.amount),
+                      item.type == BankDifferenceType.reviewRequired ? '${_money(item.amount)} *' : _money(item.add ? item.amount : -item.amount),
                       center: true,
                     ),
                     _cell(fonts, item.status.label, center: true),
@@ -497,7 +502,7 @@ class BankReconciliationPdfBuilder {
                     (index) => _cell(
                       fonts,
                       index == 2
-                          ? 'الإجمالي'
+                          ? (reviewOnly ? 'إجمالي مبالغ غير محتسبة' : 'صافي البنود المحتسبة')
                           : index == amountColumn
                               ? _money(
                                   totalOverride ??
