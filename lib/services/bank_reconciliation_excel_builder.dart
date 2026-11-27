@@ -286,8 +286,8 @@ class BankReconciliationExcelBuilder {
           TextCellValue(
             item.adjustBankBalance ? 'كشف البنك' : 'دفاتر الشركة',
           ),
-        TextCellValue(item.add ? 'إضافة' : 'خصم'),
-        DoubleCellValue(item.add ? item.amount : -item.amount),
+        TextCellValue(item.type == BankDifferenceType.reviewRequired ? 'غير محددة' : item.add ? 'إضافة' : 'خصم'),
+        DoubleCellValue(item.type == BankDifferenceType.reviewRequired ? item.amount : item.add ? item.amount : -item.amount),
         TextCellValue(item.status.label),
       ]);
     }
@@ -319,11 +319,12 @@ class BankReconciliationExcelBuilder {
       TextCellValue(''),
       growable: false,
     );
-    totalValues[2] = TextCellValue('الإجمالي');
+    final reviewOnly = items.every((item) => item.type == BankDifferenceType.reviewRequired);
+    totalValues[2] = TextCellValue(reviewOnly ? 'إجمالي مبالغ للمراجعة (غير محتسبة)' : 'صافي البنود المحتسبة');
     totalValues[amountColumn] = DoubleCellValue(
       items.fold<double>(
         0,
-        (sum, item) => sum + (item.add ? item.amount : -item.amount),
+        (sum, item) => sum + (reviewOnly ? item.amount : item.includedInCalculation ? (item.add ? item.amount : -item.amount) : 0.0),
       ),
     );
     sheet.appendRow(totalValues);
