@@ -118,7 +118,10 @@ class BankReconciliationService {
         text.contains('تحصيل') ||
         text.contains('إيداع مباشر');
 
-    final type = transaction.side == EntrySide.unknown
+    final increasesBalance = transaction.side == EntrySide.credit;
+    final type = transaction.side == EntrySide.unknown ||
+            ((isFee || isReturned) && increasesBalance) ||
+            ((isInterest || isDirectDeposit) && !increasesBalance)
         ? BankDifferenceType.reviewRequired
         : isFee
             ? BankDifferenceType.bankFee
