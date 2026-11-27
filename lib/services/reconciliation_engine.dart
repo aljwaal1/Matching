@@ -24,7 +24,7 @@ class ReconciliationEngine {
     required List<TransactionRecord> right,
     required ReconciliationSettings settings,
   }) {
-    if (settings.amountTolerance <= 0) {
+    if (!settings.amountTolerance.isFinite || settings.amountTolerance <= 0) {
       throw ArgumentError.value(settings.amountTolerance, 'amountTolerance');
     }
     if (settings.allowedDateDifferenceDays < 0) {
@@ -103,7 +103,7 @@ class ReconciliationEngine {
 
     // عند غياب رقم المستند في أحد الطرفين، أو عدم وجود الرقم نفسه،
     // نبحث في المبلغ والتاريخ مع إبقاء اختلاف أرقام المستندات سبباً للرفض.
-    if (candidates.isEmpty) {
+    {
       final bucket = _bucket(left.amount, settings.amountTolerance);
       for (var current = bucket - 1; current <= bucket + 1; current++) {
         for (final item
@@ -155,7 +155,7 @@ class ReconciliationEngine {
       return _no(left, right, 'الملفان يحتويان العملية نفسها', 8);
     }
 
-    if (settings.requireOppositeEntrySides) {
+    if (settings.requireOppositeEntrySides || settings.mode == ReconciliationMode.bank) {
       if (left.side == EntrySide.unknown ||
           right.side == EntrySide.unknown) {
         return _no(
@@ -184,7 +184,9 @@ class ReconciliationEngine {
     final rightDocument = right.normalizedDocumentNumber;
     final bothHaveDocuments =
         leftDocument.isNotEmpty && rightDocument.isNotEmpty;
-    final dateDifference = left.date.difference(right.date).inDays.abs();
+    final leftDay = DateTime.utc(left.date.year, left.date.month, left.date.day);
+    final rightDay = DateTime.utc(right.date.year, right.date.month, right.date.day);
+    final dateDifference = leftDay.difference(rightDay).inDays.abs();
     if (dateDifference > settings.allowedDateDifferenceDays) {
       return _no(left, right, 'فرق التاريخ أكبر من المسموح', 5);
     }
@@ -240,7 +242,7 @@ class ReconciliationEngine {
   ) =>
       MatchPair(
         left: left,
-        right: right,
+        right: null,
         status: MatchStatus.unmatched,
         reason: reason,
         score: score,
