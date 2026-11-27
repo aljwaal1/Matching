@@ -5,14 +5,14 @@ class ExcelReportStyle {
 
   static final _thinBorder = Border(
     borderStyle: BorderStyle.Thin,
-    borderColorHex: ExcelColor.fromHexString('#FFB7BCC7'),
+    borderColorHex: ExcelColor.fromHexString('#FFD5DEE7'),
   );
 
   static final title = CellStyle(
     bold: true,
     fontSize: 16,
     fontColorHex: ExcelColor.white,
-    backgroundColorHex: ExcelColor.fromHexString('#FF5B3FD1'),
+    backgroundColorHex: ExcelColor.fromHexString('#FF142E46'),
     horizontalAlign: HorizontalAlign.Center,
     verticalAlign: VerticalAlign.Center,
     textWrapping: TextWrapping.WrapText,
@@ -26,7 +26,7 @@ class ExcelReportStyle {
     bold: true,
     fontSize: 11,
     fontColorHex: ExcelColor.white,
-    backgroundColorHex: ExcelColor.fromHexString('#FF00A9C8'),
+    backgroundColorHex: ExcelColor.fromHexString('#FF087F75'),
     horizontalAlign: HorizontalAlign.Center,
     verticalAlign: VerticalAlign.Center,
     textWrapping: TextWrapping.WrapText,
