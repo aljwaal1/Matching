@@ -67,7 +67,7 @@ class BankReconciliationPdfBuilder {
         items: activeBankItems,
         closingLabel: 'الرصيد المعدل حسب كشف البنك',
         closingBalance: statement.adjustedBankBalance,
-        color: PdfColor.fromHex('#00A9C8'),
+        color: PdfColor.fromHex('#087F75'),
       ),
       pw.SizedBox(height: 14),
       _summarySection(
@@ -78,7 +78,7 @@ class BankReconciliationPdfBuilder {
         items: activeBookItems,
         closingLabel: 'الرصيد المعدل حسب دفاتر الشركة',
         closingBalance: statement.adjustedBookBalance,
-        color: PdfColor.fromHex('#6D4CFF'),
+        color: PdfColor.fromHex('#142E46'),
       ),
       pw.SizedBox(height: 14),
       _finalResult(fonts, statement),
@@ -86,13 +86,13 @@ class BankReconciliationPdfBuilder {
         fonts: fonts,
         title: 'معلقات كشف البنك',
         items: bankPending,
-        color: PdfColor.fromHex('#00A9C8'),
+        color: PdfColor.fromHex('#087F75'),
       ),
       ..._detailPages(
         fonts: fonts,
         title: 'معلقات دفاتر الشركة',
         items: bookPending,
-        color: PdfColor.fromHex('#6D4CFF'),
+        color: PdfColor.fromHex('#142E46'),
       ),
       if (reviewItems.isNotEmpty)
         ..._detailPages(
@@ -121,7 +121,7 @@ class BankReconciliationPdfBuilder {
         theme: arabicPdfTheme(fonts),
         maxPages: 250,
         footer: (context) => arabicPdfText(
-          'الصفحة ${context.pageNumber} من ${context.pagesCount}',
+          'المحاسب المحترف | acc.explapp.com | الصفحة ${context.pageNumber} من ${context.pagesCount}',
           fonts,
           fontSize: 8,
           color: PdfColors.grey700,
@@ -141,6 +141,7 @@ class BankReconciliationPdfBuilder {
     required PdfColor color,
     bool includeSide = false,
   }) {
+    if (items.isEmpty) return const <pw.Widget>[];
     final chunks = _chunk(items, _detailChunkSize);
     final pages = chunks.isEmpty
         ? <List<BankAdjustmentItem>>[const <BankAdjustmentItem>[]]
